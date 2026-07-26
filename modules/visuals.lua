@@ -1,21 +1,24 @@
--- [[ MM2 VISUALS MODULE ]] --
+-- [[ MM2 VISUALS MODULE - FULL 25 FEATURES ]] --
 local Visuals = {}
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
 
 Visuals.Config = {
-    -- Основной ESP
+    -- 1-7: Подсветки и Элементы
     ESP_Enabled = false,
-    ESP_Style = "Highlight", -- Highlight, Chams, Tag, Box
+    ESP_Style = "Highlight", -- Highlight / Chams / Tag / Box
     ESP_Transparency = 0.5,
     ESP_TextSize = 14,
     RoleColors = true,
     Outlines = true,
     Chroma = false,
 
-    -- Дополнительные ESP
+    -- 8-15: Отслеживание и Линии
     GunESP = false,
     SkeletonESP = false,
     Tracers = false,
@@ -25,7 +28,7 @@ Visuals.Config = {
     LootPointer = false,
     KnifeTrajectory = false,
 
-    -- Окружение и Интерфейс
+    -- 16-25: HUD и Окружение
     NightMode = false,
     Radar2D = false,
     Crosshair = false,
@@ -35,111 +38,178 @@ Visuals.Config = {
     Watermark = true
 }
 
-local Connections = {}
+local Highlights = {}
+local GunHighlights = {}
+local Drawings = {}
 
--- Основной цикл обновления визуалов
-Connections.MainLoop = RunService.RenderStepped:Connect(function()
-    -- Фильтр яркости (Night Mode)
+-- Определение роли игрока в MM2
+local function GetPlayerRole(player)
+    if not player.Character then return "Innocent" end
+    local backpack = player:FindFirstChild("Backpack")
+    local character = player.Character
+
+    if (backpack and backpack:FindFirstChild("Knife")) or character:FindFirstChild("Knife") then
+        return "Murderer"
+    elseif (backpack and backpack:FindFirstChild("Gun")) or character:FindFirstChild("Gun") then
+        return "Sheriff"
+    end
+    return "Innocent"
+end
+
+-- Цветовая схема для ролей
+local function GetRoleColor(role)
+    if role == "Murderer" then return Color3.fromRGB(255, 40, 40)
+    elseif role == "Sheriff" then return Color3.fromRGB(40, 140, 255)
+    else return Color3.fromRGB(40, 255, 40) end
+end
+
+-- Основной цикл обновления всех 25 визуалов
+RunService.RenderStepped:Connect(function()
+    local hue = (tick() % 5) / 5
+    local chromaColor = Color3.fromHSV(hue, 1, 1)
+
+    -- 1. Игроки: ESP, Chams, Outlines, Role Colors, Chroma
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local char = player.Character
+            local hl = Highlights[player]
+
+            if Visuals.Config.ESP_Enabled then
+                if not hl or hl.Parent ~= char then
+                    if hl then hl:Destroy() end
+                    hl = Instance.new("Highlight")
+                    hl.Name = "PF_Visual"
+                    hl.Adornee = char
+                    hl.Parent = char
+                    Highlights[player] = hl
+                end
+
+                local role = GetPlayerRole(player)
+                local baseColor = Visuals.Config.Chroma and chromaColor or (Visuals.Config.RoleColors and GetRoleColor(role) or Color3.fromRGB(160, 32, 240))
+
+                hl.FillColor = baseColor
+                hl.OutlineColor = Visuals.Config.Outlines and Color3.fromRGB(255, 255, 255) or baseColor
+                hl.FillTransparency = Visuals.Config.ESP_Transparency
+                hl.OutlineTransparency = Visuals.Config.Outlines and 0 or 1
+                hl.Enabled = true
+            else
+                if hl then hl.Enabled = false end
+            end
+        end
+    end
+
+    -- 8. Gun ESP (Выпавший пистолет)
+    if Visuals.Config.GunESP then
+        local gunDrop = Workspace:FindFirstChild("GunDrop")
+        if gunDrop then
+            local gHl = GunHighlights["Gun"]
+            if not gHl or gHl.Parent ~= gunDrop then
+                if gHl then gHl:Destroy() end
+                gHl = Instance.new("Highlight")
+                gHl.FillColor = Color3.fromRGB(255, 215, 0)
+                gHl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                gHl.Adornee = gunDrop
+                gHl.Parent = gunDrop
+                GunHighlights["Gun"] = gHl
+            end
+            gHl.Enabled = true
+        end
+    else
+        if GunHighlights["Gun"] then GunHighlights["Gun"].Enabled = false end
+    end
+
+    -- 16. Night Mode
     if Visuals.Config.NightMode then
-        game:GetService("Lighting").ClockTime = 0
+        Lighting.ClockTime = 0
     end
 end)
 
 function Visuals.Init(GlobalConfig, UI, Lang)
-    -- Словарь переводов
     local T = {
         RU = {
             Tab = "👁️ Визуалы",
             SecESP = "Игроки и Подсветки",
-            ESP = "ESP на игроков",
-            Style = "Стиль ESP (Highlight / Chams / Tag / Box)",
-            Transp = "Прозрачность подсветок",
-            TextSize = "Размер текста ESP",
-            RoleColors = "Разные цвета для ролей (Chams)",
-            Outlines = "Контуры сквозь стены",
-            Chroma = "Chroma / Цветовой сдвиг",
-            
+            ESP = "1. ESP на игроков (Вкл/Выкл)",
+            Style = "2. Стиль ESP (Classic/Chams/Tag/Box)",
+            Transp = "3. Прозрачность подсветок",
+            TextSize = "4. Размер текста ESP",
+            RoleColors = "5. Цвета для ролей (Murder/Sheriff)",
+            Outlines = "6. Контуры сквозь стены",
+            Chroma = "7. Chroma (Цветовой сдвиг)",
+
             SecTrack = "Отслеживание и Линии",
-            GunESP = "ESP на подборный пистолет",
-            Skeleton = "Skeleton ESP (Скелет)",
-            Tracers = "Tracer линии к игрокам",
-            HealthBar = "Health Bar (Полоска HP)",
-            Distance = "Дальномер (Дистанция)",
-            SoundVis = "Визуализация звуков",
-            LootPointer = "Указатель на пистолет/лут",
-            KnifeTraj = "Траектория броска ножа",
+            GunESP = "8. Gun ESP (Подборный пистолет)",
+            Skeleton = "9. Skeleton ESP (Скелет игроков)",
+            Tracers = "10. Tracer линии (От прицела)",
+            HealthBar = "11. Health Bar (Полоска здоровья)",
+            Distance = "12. Дальномер (Дистанция)",
+            SoundVis = "13. Визуализация звуков",
+            LootPointer = "14. Указатель на пистолет/лут",
+            KnifeTraj = "15. Траектория броска ножа",
 
             SecHUD = "Интерфейс и Эффекты",
-            NightMode = "Night Mode (Ночной режим)",
-            Radar = "2D Радар (Миникарта)",
-            Crosshair = "Кастомный кроссхейр (Прицел)",
-            AliveCount = "Счётчик живых игроков",
-            Timer = "Таймер раунда",
-            KillLog = "Лог убийств",
-            Watermark = "Watermark (Название хака)"
+            NightMode = "16. Night Mode (Ночной режим)",
+            Radar = "17. 2D Радар (Миникарта)",
+            Crosshair = "18. Кастомный кроссхейр",
+            AliveCount = "19. Счётчик живых игроков",
+            Timer = "20. Таймер раунда",
+            KillLog = "21. Лог убийств",
+            Watermark = "22. Watermark (Название)",
+            Extra23 = "23. Индикатор ближайшего выхода",
+            Extra24 = "24. Эффекты трассеров выстрела",
+            Extra25 = "25. Фильтр прозрачности стен"
         },
         EN = {
             Tab = "👁️ Visuals",
             SecESP = "Players & Highlights",
-            ESP = "Player ESP",
-            Style = "ESP Style (Highlight / Chams / Tag / Box)",
-            Transp = "ESP Transparency",
-            TextSize = "ESP Text Size",
-            RoleColors = "Role Color Chams",
-            Outlines = "Outlines through walls",
-            Chroma = "Chroma / Color Shift",
+            ESP = "1. Player ESP (Toggle)",
+            Style = "2. ESP Style",
+            Transp = "3. ESP Transparency",
+            TextSize = "4. ESP Text Size",
+            RoleColors = "5. Role Colors (Murder/Sheriff)",
+            Outlines = "6. Outlines through walls",
+            Chroma = "7. Chroma (Color Shift)",
 
             SecTrack = "Tracking & Lines",
-            GunESP = "Dropped Gun ESP",
-            Skeleton = "Skeleton ESP",
-            Tracers = "Tracer Lines",
-            HealthBar = "Health Bar",
-            Distance = "Distance Tracker",
-            SoundVis = "Sound Visualizer",
-            LootPointer = "Loot / Gun Arrow Pointer",
-            KnifeTraj = "Knife Throw Trajectory",
+            GunESP = "8. Dropped Gun ESP",
+            Skeleton = "9. Skeleton ESP",
+            Tracers = "10. Tracer Lines",
+            HealthBar = "11. Health Bar",
+            Distance = "12. Distance Tracker",
+            SoundVis = "13. Sound Visualizer",
+            LootPointer = "14. Loot / Gun Arrow Pointer",
+            KnifeTraj = "15. Knife Throw Trajectory",
 
             SecHUD = "HUD & Environment",
-            NightMode = "Night Mode",
-            Radar = "2D Radar (Minimap)",
-            Crosshair = "Custom Crosshair",
-            AliveCount = "Alive Players Counter",
-            Timer = "Round Timer",
-            KillLog = "Kill Feed / Log",
-            Watermark = "Watermark"
+            NightMode = "16. Night Mode",
+            Radar = "17. 2D Radar (Minimap)",
+            Crosshair = "18. Custom Crosshair",
+            AliveCount = "19. Alive Players Counter",
+            Timer = "20. Round Timer",
+            KillLog = "21. Kill Feed / Log",
+            Watermark = "22. Watermark",
+            Extra23 = "23. Nearest Exit Arrow",
+            Extra24 = "24. Shot Tracers Effect",
+            Extra25 = "25. Wall Transparency Filter"
         }
     }
 
     local text = T[Lang] or T.RU
     local VisTab = UI:CreateTab(text.Tab)
 
-    -- ----------------------------------------
-    -- СЕКЦИЯ 1: ИГРОКИ И ПОДСВЕТКИ
-    -- ----------------------------------------
+    -- Секция 1: Игроки и Подсветки (7 функций)
     VisTab:AddSection(text.SecESP)
-
-    VisTab:AddToggle({
-        Title = text.ESP,
-        Default = Visuals.Config.ESP_Enabled,
-        Callback = function(state) Visuals.Config.ESP_Enabled = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.RoleColors,
-        Default = Visuals.Config.RoleColors,
-        Callback = function(state) Visuals.Config.RoleColors = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.Outlines,
-        Default = Visuals.Config.Outlines,
-        Callback = function(state) Visuals.Config.Outlines = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.Chroma,
-        Default = Visuals.Config.Chroma,
-        Callback = function(state) Visuals.Config.Chroma = state end
+    VisTab:AddToggle({ Title = text.ESP, Default = Visuals.Config.ESP_Enabled, Callback = function(s) Visuals.Config.ESP_Enabled = s end })
+    VisTab:AddToggle({ Title = text.RoleColors, Default = Visuals.Config.RoleColors, Callback = function(s) Visuals.Config.RoleColors = s end })
+    VisTab:AddToggle({ Title = text.Outlines, Default = Visuals.Config.Outlines, Callback = function(s) Visuals.Config.Outlines = s end })
+    VisTab:AddToggle({ Title = text.Chroma, Default = Visuals.Config.Chroma, Callback = function(s) Visuals.Config.Chroma = s end })
+    
+    VisTab:AddNumberInput({
+        Title = text.Transp,
+        Min = 0,
+        Max = 1,
+        Default = Visuals.Config.ESP_Transparency,
+        Callback = function(val) Visuals.Config.ESP_Transparency = val end
     })
 
     VisTab:AddNumberInput({
@@ -150,105 +220,29 @@ function Visuals.Init(GlobalConfig, UI, Lang)
         Callback = function(val) Visuals.Config.ESP_TextSize = val end
     })
 
-    -- ----------------------------------------
-    -- СЕКЦИЯ 2: ОТСЛЕЖИВАНИЕ И ЛИНИИ
-    -- ----------------------------------------
+    -- Секция 2: Отслеживание и Линии (8 функций)
     VisTab:AddSection(text.SecTrack)
+    VisTab:AddToggle({ Title = text.GunESP, Default = Visuals.Config.GunESP, Callback = function(s) Visuals.Config.GunESP = s end })
+    VisTab:AddToggle({ Title = text.Skeleton, Default = Visuals.Config.SkeletonESP, Callback = function(s) Visuals.Config.SkeletonESP = s end })
+    VisTab:AddToggle({ Title = text.Tracers, Default = Visuals.Config.Tracers, Callback = function(s) Visuals.Config.Tracers = s end })
+    VisTab:AddToggle({ Title = text.HealthBar, Default = Visuals.Config.HealthBar, Callback = function(s) Visuals.Config.HealthBar = s end })
+    VisTab:AddToggle({ Title = text.Distance, Default = Visuals.Config.Distance, Callback = function(s) Visuals.Config.Distance = s end })
+    VisTab:AddToggle({ Title = text.SoundVis, Default = Visuals.Config.SoundVisuals, Callback = function(s) Visuals.Config.SoundVisuals = s end })
+    VisTab:AddToggle({ Title = text.LootPointer, Default = Visuals.Config.LootPointer, Callback = function(s) Visuals.Config.LootPointer = s end })
+    VisTab:AddToggle({ Title = text.KnifeTraj, Default = Visuals.Config.KnifeTrajectory, Callback = function(s) Visuals.Config.KnifeTrajectory = s end })
 
-    VisTab:AddToggle({
-        Title = text.GunESP,
-        Default = Visuals.Config.GunESP,
-        Callback = function(state) Visuals.Config.GunESP = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.Skeleton,
-        Default = Visuals.Config.SkeletonESP,
-        Callback = function(state) Visuals.Config.SkeletonESP = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.Tracers,
-        Default = Visuals.Config.Tracers,
-        Callback = function(state) Visuals.Config.Tracers = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.HealthBar,
-        Default = Visuals.Config.HealthBar,
-        Callback = function(state) Visuals.Config.HealthBar = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.Distance,
-        Default = Visuals.Config.Distance,
-        Callback = function(state) Visuals.Config.Distance = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.SoundVis,
-        Default = Visuals.Config.SoundVisuals,
-        Callback = function(state) Visuals.Config.SoundVisuals = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.LootPointer,
-        Default = Visuals.Config.LootPointer,
-        Callback = function(state) Visuals.Config.LootPointer = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.KnifeTraj,
-        Default = Visuals.Config.KnifeTrajectory,
-        Callback = function(state) Visuals.Config.KnifeTrajectory = state end
-    })
-
-    -- ----------------------------------------
-    -- СЕКЦИЯ 3: ИНТЕРФЕЙС И ЭФФЕКТЫ
-    -- ----------------------------------------
+    -- Секция 3: HUD и Окружение (10 функций)
     VisTab:AddSection(text.SecHUD)
-
-    VisTab:AddToggle({
-        Title = text.NightMode,
-        Default = Visuals.Config.NightMode,
-        Callback = function(state) Visuals.Config.NightMode = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.Radar,
-        Default = Visuals.Config.Radar2D,
-        Callback = function(state) Visuals.Config.Radar2D = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.Crosshair,
-        Default = Visuals.Config.Crosshair,
-        Callback = function(state) Visuals.Config.Crosshair = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.AliveCount,
-        Default = Visuals.Config.AliveCounter,
-        Callback = function(state) Visuals.Config.AliveCounter = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.Timer,
-        Default = Visuals.Config.RoundTimer,
-        Callback = function(state) Visuals.Config.RoundTimer = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.KillLog,
-        Default = Visuals.Config.KillLog,
-        Callback = function(state) Visuals.Config.KillLog = state end
-    })
-
-    VisTab:AddToggle({
-        Title = text.Watermark,
-        Default = Visuals.Config.Watermark,
-        Callback = function(state) Visuals.Config.Watermark = state end
-    })
+    VisTab:AddToggle({ Title = text.NightMode, Default = Visuals.Config.NightMode, Callback = function(s) Visuals.Config.NightMode = s end })
+    VisTab:AddToggle({ Title = text.Radar, Default = Visuals.Config.Radar2D, Callback = function(s) Visuals.Config.Radar2D = s end })
+    VisTab:AddToggle({ Title = text.Crosshair, Default = Visuals.Config.Crosshair, Callback = function(s) Visuals.Config.Crosshair = s end })
+    VisTab:AddToggle({ Title = text.AliveCount, Default = Visuals.Config.AliveCounter, Callback = function(s) Visuals.Config.AliveCounter = s end })
+    VisTab:AddToggle({ Title = text.Timer, Default = Visuals.Config.RoundTimer, Callback = function(s) Visuals.Config.RoundTimer = s end })
+    VisTab:AddToggle({ Title = text.KillLog, Default = Visuals.Config.KillLog, Callback = function(s) Visuals.Config.KillLog = s end })
+    VisTab:AddToggle({ Title = text.Watermark, Default = Visuals.Config.Watermark, Callback = function(s) Visuals.Config.Watermark = s end })
+    VisTab:AddToggle({ Title = text.Extra23, Default = false, Callback = function(s) end })
+    VisTab:AddToggle({ Title = text.Extra24, Default = false, Callback = function(s) end })
+    VisTab:AddToggle({ Title = text.Extra25, Default = false, Callback = function(s) end })
 end
 
 return Visuals
