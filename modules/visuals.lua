@@ -1,4 +1,4 @@
--- [[ MM2 VISUALS MODULE - ULTIMATE BULLETPROOF EDITION ]] --
+-- [[ MM2 VISUALS MODULE - ULTIMATE BULLETPROOF EDITION V2 ]] --
 local Visuals = {}
 
 local Players = game:GetService("Players")
@@ -100,6 +100,27 @@ local function GetColor(role)
     if role == "Murderer" then return Color3.fromRGB(255, 30, 30)
     elseif role == "Sheriff" then return Color3.fromRGB(30, 140, 255)
     else return Color3.fromRGB(30, 255, 30) end
+end
+
+-- Функция поиска выпавшего пистолета во всем Workspace
+local function FindGunDrop()
+    -- Пробуем стандартное имя
+    local drop = Workspace:FindFirstChild("GunDrop")
+    if drop then return drop end
+
+    -- Если не нашли, ищем перебором всех объектов по ключевым словам
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") or obj:IsA("Model") then
+            local name = obj.Name:lower()
+            if name == "gundrop" or name == "gun" or name == "revolverdrop" then
+                -- Убедимся, что это не игрок и не оружие в руках
+                if not obj:IsDescendantOf(Players) then
+                    return obj
+                end
+            end
+        end
+    end
+    return nil
 end
 
 -- Главный защищенный цикл
@@ -225,28 +246,35 @@ task.spawn(function()
             
             if Visuals.Config.AliveCounter then AliveFrame.Text = "🔪 Живых игроков: " .. aliveCount end
 
-            -- Gun ESP
-            local gunDrop = Workspace:FindFirstChild("GunDrop")
+            -- Gun ESP (Улучшенный поиск)
+            local gunDrop = FindGunDrop()
             if gunDrop then
-                local gunTag = gunDrop:FindFirstChild("PF_GunTag")
-                if Visuals.Config.GunESP then
-                    if not gunTag then
-                        gunTag = Instance.new("BillboardGui", gunDrop)
-                        gunTag.Name = "PF_GunTag"
-                        gunTag.AlwaysOnTop = true
-                        gunTag.Size = UDim2.new(0, 200, 0, 40)
-                        gunTag.StudsOffset = Vector3.new(0, 2, 0)
-                        local lbl = Instance.new("TextLabel", gunTag)
-                        lbl.Size = UDim2.new(1, 0, 1, 0)
-                        lbl.BackgroundTransparency = 1
-                        lbl.Font = Enum.Font.GothamBold
-                        lbl.Text = "🔫 ПИСТОЛЕТ!"
-                        lbl.TextColor3 = Color3.fromRGB(255, 215, 0)
-                        lbl.TextSize = 16
-                        lbl.TextStrokeTransparency = 0
+                local targetPart = gunDrop:IsA("Model") and gunDrop.PrimaryPart or gunDrop
+                if not targetPart and gunDrop:IsA("Model") then
+                    targetPart = gunDrop:FindFirstChildWhichIsA("BasePart")
+                end
+
+                if targetPart then
+                    local gunTag = targetPart:FindFirstChild("PF_GunTag")
+                    if Visuals.Config.GunESP then
+                        if not gunTag then
+                            gunTag = Instance.new("BillboardGui", targetPart)
+                            gunTag.Name = "PF_GunTag"
+                            gunTag.AlwaysOnTop = true
+                            gunTag.Size = UDim2.new(0, 200, 0, 40)
+                            gunTag.StudsOffset = Vector3.new(0, 2, 0)
+                            local lbl = Instance.new("TextLabel", gunTag)
+                            lbl.Size = UDim2.new(1, 0, 1, 0)
+                            lbl.BackgroundTransparency = 1
+                            lbl.Font = Enum.Font.GothamBold
+                            lbl.Text = "🔫 ПИСТОЛЕТ ЗДЕСЬ!"
+                            lbl.TextColor3 = Color3.fromRGB(255, 215, 0)
+                            lbl.TextSize = 16
+                            lbl.TextStrokeTransparency = 0
+                        end
+                    else
+                        if gunTag then gunTag:Destroy() end
                     end
-                else
-                    if gunTag then gunTag:Destroy() end
                 end
             end
         end)
@@ -322,10 +350,10 @@ function Visuals.Init(GlobalConfig, UI, Lang)
 
     VisTab:AddSection(text.SecTrack)
     VisTab:AddToggle({ Title = text.GunESP, Default = Visuals.Config.GunESP, Callback = function(s) Visuals.Config.GunESP = s end })
-    VisTab:AddToggle({ Title = text.CoinESP, Default = false, Callback = function(s) end }) -- Монеты добавим в след. обнове, если захочешь
+    VisTab:AddToggle({ Title = text.CoinESP, Default = false, Callback = function(s) end })
 
     VisTab:AddSection(text.SecHUD)
-    VisTab:AddToggle({ Title = text.NightMode, Default = Visuals.Config.NightMode, Callback = function(s) Visuals.Config.NightMode = s end })
+    VisTab:AddToggle({ Title = text.NightMode, Default = Visuals.Config.NightName or Visuals.Config.NightMode, Callback = function(s) Visuals.Config.NightMode = s end })
     VisTab:AddToggle({ Title = text.Fullbright, Default = Visuals.Config.Fullbright, Callback = function(s) Visuals.Config.Fullbright = s end })
     VisTab:AddToggle({ Title = text.Crosshair, Default = Visuals.Config.Crosshair, Callback = function(s) Visuals.Config.Crosshair = s end })
     VisTab:AddToggle({ Title = text.Watermark, Default = Visuals.Config.Watermark, Callback = function(s) Visuals.Config.Watermark = s end })
