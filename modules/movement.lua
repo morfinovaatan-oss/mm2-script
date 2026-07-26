@@ -13,7 +13,6 @@ Movement.Config = {
     JumpPower = 50,
     InfiniteJump = false,
     Invisibility = false,
-    AntiFling = false,
     AntiAFK = true,
     NoClip = false
 }
@@ -68,36 +67,20 @@ Connections.MainLoop = RunService.Stepped:Connect(function()
             end
         end
     end
-
-    -- Анти-Флинг (Защита от расталкивания)
-    if Movement.Config.AntiFling then
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                for _, part in pairs(player.Character:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                        part.Velocity = Vector3.new(0, 0, 0)
-                        part.RotVelocity = Vector3.new(0, 0, 0)
-                    end
-                end
-            end
-        end
-    end
 end)
 
 function Movement.Init(GlobalConfig, UI, Lang)
-    -- Словарь переводов
+    -- Переводы текста
     local T = {
         RU = {
             Tab = "🏃 Движение",
             SecSpeed = "Характеристики персонажа",
             Speed = "Скорость бега",
             Jump = "Высота прыжка",
-            SecAbilities = "Способности и Защита",
+            SecAbilities = "Способности",
             InfJump = "Бесконечные прыжки",
             NoClip = "Ноу-клип (Проход сквозь стены)",
             Invis = "Невидимость",
-            AntiFling = "Анти-Флинг (Защита от расталкивания)",
             AntiAFK = "Анти-АФК (Защита от вылета)"
         },
         EN = {
@@ -105,11 +88,10 @@ function Movement.Init(GlobalConfig, UI, Lang)
             SecSpeed = "Character Stats",
             Speed = "Walk Speed",
             Jump = "Jump Power",
-            SecAbilities = "Abilities & Protection",
+            SecAbilities = "Abilities",
             InfJump = "Infinite Jump",
             NoClip = "Noclip (Wallpass)",
             Invis = "Invisibility",
-            AntiFling = "Anti-Fling Protection",
             AntiAFK = "Anti-AFK (Anti-Kick)"
         }
     }
@@ -117,7 +99,7 @@ function Movement.Init(GlobalConfig, UI, Lang)
     local text = T[Lang] or T.RU
     local MoveTab = UI:CreateTab(text.Tab)
 
-    -- Секция 1: Характеристики
+    -- Секция 1: Скорость и Прыжок
     MoveTab:AddSection(text.SecSpeed)
 
     MoveTab:AddNumberInput({
@@ -136,7 +118,7 @@ function Movement.Init(GlobalConfig, UI, Lang)
         Callback = function(val) Movement.Config.JumpPower = val end
     })
 
-    -- Секция 2: Способности и Защита
+    -- Секция 2: Способности
     MoveTab:AddSection(text.SecAbilities)
 
     MoveTab:AddToggle({
@@ -155,12 +137,6 @@ function Movement.Init(GlobalConfig, UI, Lang)
         Title = text.Invis,
         Default = Movement.Config.Invisibility,
         Callback = function(state) Movement.Config.Invisibility = state end
-    })
-
-    MoveTab:AddToggle({
-        Title = text.AntiFling,
-        Default = Movement.Config.AntiFling,
-        Callback = function(state) Movement.Config.AntiFling = state end
     })
 
     MoveTab:AddToggle({
