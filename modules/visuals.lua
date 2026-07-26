@@ -1,50 +1,38 @@
--- [[ MM2 VISUALS MODULE - FULL 25 FEATURES ]] --
+-- [[ MM2 VISUALS MODULE - RELIABLE RENDER ]] --
 local Visuals = {}
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
 local Lighting = game:GetService("Lighting")
+
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
 Visuals.Config = {
-    -- 1-7: Подсветки и Элементы
     ESP_Enabled = false,
-    ESP_Style = "Highlight", -- Highlight / Chams / Tag / Box
-    ESP_Transparency = 0.5,
-    ESP_TextSize = 14,
     RoleColors = true,
-    Outlines = true,
-    Chroma = false,
-
-    -- 8-15: Отслеживание и Линии
     GunESP = false,
-    SkeletonESP = false,
     Tracers = false,
-    HealthBar = false,
-    Distance = false,
-    SoundVisuals = false,
-    LootPointer = false,
-    KnifeTrajectory = false,
-
-    -- 16-25: HUD и Окружение
-    NightMode = false,
-    Radar2D = false,
     Crosshair = false,
-    AliveCounter = false,
-    RoundTimer = false,
-    KillLog = false,
-    Watermark = true
+    NightMode = false,
+    Watermark = true,
+    ESP_Transparency = 0.5,
+    ESP_TextSize = 14
 }
 
-local Highlights = {}
-local GunHighlights = {}
-local Drawings = {}
+-- Папка в CoreGui для хранения подсветок и надписей
+local ESPFolder = Instance.new("Folder")
+ESPFolder.Name = "PurpleFox_ESP"
+pcall(function() ESPFolder.Parent = CoreGui end)
+if not ESPFolder.Parent then ESPFolder.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
--- Определение роли игрока в MM2
+-- Функция определения роли в MM2
 local function GetPlayerRole(player)
-    if not player.Character then return "Innocent" end
+    if not player or not player.Character then return "Innocent" end
+    
+    -- Проверка инвентаря и рук
     local backpack = player:FindFirstChild("Backpack")
     local character = player.Character
 
@@ -53,72 +41,116 @@ local function GetPlayerRole(player)
     elseif (backpack and backpack:FindFirstChild("Gun")) or character:FindFirstChild("Gun") then
         return "Sheriff"
     end
+
+    -- Дополнительная проверка на случай специфической структуры MM2
+    for _, item in pairs(character:GetChildren()) do
+        if item:IsA("Tool") then
+            if item.Name:lower():find("knife") or item.Name:lower():find("blade") then return "Murderer" end
+            if item.Name:lower():find("gun") or item.Name:lower():find("revolver") then return "Sheriff" end
+        end
+    end
+
     return "Innocent"
 end
 
--- Цветовая схема для ролей
 local function GetRoleColor(role)
     if role == "Murderer" then return Color3.fromRGB(255, 40, 40)
     elseif role == "Sheriff" then return Color3.fromRGB(40, 140, 255)
     else return Color3.fromRGB(40, 255, 40) end
 end
 
--- Основной цикл обновления всех 25 визуалов
+-- Отрисовка каждый кадр
 RunService.RenderStepped:Connect(function()
-    local hue = (tick() % 5) / 5
-    local chromaColor = Color3.fromHSV(hue, 1, 1)
-
-    -- 1. Игроки: ESP, Chams, Outlines, Role Colors, Chroma
+    -- 1. ESP и Текстовые метки над игроками
     for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local char = player.Character
-            local hl = Highlights[player]
+        if player ~= LocalPlayer then
+            local tag = ESPFolder:FindFirstChild("Tag_" .. player.Name)
+            local hl = ESPFolder:FindFirstChild("HL_" .. player.Name)
 
-            if Visuals.Config.ESP_Enabled then
-                if not hl or hl.Parent ~= char then
-                    if hl then hl:Destroy() end
-                    hl = Instance.new("Highlight")
-                    hl.Name = "PF_Visual"
-                    hl.Adornee = char
-                    hl.Parent = char
-                    Highlights[player] = hl
+            if Visuals.Config.ESP_Enabled and player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character.Humanoid.Health > 0 then
+                local head = player.Character.Head
+                local role = GetPlayerRole(player)
+                local color = Visuals.Config.RoleColors and GetRoleColor(role) or Color3.fromRGB(160, 32, 240)
+
+                -- 1A. Текстовый Tag (Имя + Роль + Дистанция)
+                if not tag then
+                    tag = Instance.new("BillboardGui")
+                    tag.Name = "Tag_" .. player.Name
+                    tag.AlwaysOnTop = true
+                    tag.Size = UDim2.new(0, 200, 0, 50)
+                    tag.StudsOffset = Vector3.new(0, 3, 0)
+
+                    local lbl = Instance.new("TextLabel")
+                    lbl.Name = "Label"
+                    lbl.Size = UDim2.new(1, 0, 1, 0)
+                    lbl.BackgroundTransparency = 1
+                    lbl.Font = Enum.Font.GothamBold
+                    lbl.TextStrokeTransparency = 0
+                    lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                    lbl.Parent = tag
+                    tag.Parent = ESPFolder
                 end
 
-                local role = GetPlayerRole(player)
-                local baseColor = Visuals.Config.Chroma and chromaColor or (Visuals.Config.RoleColors and GetRoleColor(role) or Color3.fromRGB(160, 32, 240))
+                tag.Adornee = head
+                tag.Enabled = true
+                
+                local dist = math.floor((head.Position - Camera.CFrame.Position).Magnitude)
+                local label = tag:FindFirstChild("Label")
+                if label then
+                    label.Text = string.format("%s\n[%s] (%dm)", player.Name, role, dist)
+                    label.TextColor3 = color
+                    label.TextSize = Visuals.Config.ESP_TextSize
+                end
 
-                hl.FillColor = baseColor
-                hl.OutlineColor = Visuals.Config.Outlines and Color3.fromRGB(255, 255, 255) or baseColor
+                -- 1B. Подсветка персонажа (Highlight)
+                if not hl then
+                    hl = Instance.new("Highlight")
+                    hl.Name = "HL_" .. player.Name
+                    hl.Parent = ESPFolder
+                end
+
+                hl.Adornee = player.Character
+                hl.FillColor = color
+                hl.OutlineColor = Color3.fromRGB(255, 255, 255)
                 hl.FillTransparency = Visuals.Config.ESP_Transparency
-                hl.OutlineTransparency = Visuals.Config.Outlines and 0 or 1
                 hl.Enabled = true
             else
+                if tag then tag.Enabled = false end
                 if hl then hl.Enabled = false end
             end
         end
     end
 
-    -- 8. Gun ESP (Выпавший пистолет)
-    if Visuals.Config.GunESP then
-        local gunDrop = Workspace:FindFirstChild("GunDrop")
-        if gunDrop then
-            local gHl = GunHighlights["Gun"]
-            if not gHl or gHl.Parent ~= gunDrop then
-                if gHl then gHl:Destroy() end
-                gHl = Instance.new("Highlight")
-                gHl.FillColor = Color3.fromRGB(255, 215, 0)
-                gHl.OutlineColor = Color3.fromRGB(255, 255, 255)
-                gHl.Adornee = gunDrop
-                gHl.Parent = gunDrop
-                GunHighlights["Gun"] = gHl
-            end
-            gHl.Enabled = true
+    -- 2. ESP на выпавший пистолет (Gun ESP)
+    local gunDrop = Workspace:FindFirstChild("GunDrop")
+    local gunTag = ESPFolder:FindFirstChild("Tag_GunDrop")
+    if Visuals.Config.GunESP and gunDrop then
+        if not gunTag then
+            gunTag = Instance.new("BillboardGui")
+            gunTag.Name = "Tag_GunDrop"
+            gunTag.AlwaysOnTop = true
+            gunTag.Size = UDim2.new(0, 200, 0, 40)
+            gunTag.StudsOffset = Vector3.new(0, 2, 0)
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Name = "Label"
+            lbl.Size = UDim2.new(1, 0, 1, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.GothamBold
+            lbl.Text = "🔫 ПИСТОЛЕТ!"
+            lbl.TextColor3 = Color3.fromRGB(255, 215, 0)
+            lbl.TextSize = 16
+            lbl.TextStrokeTransparency = 0
+            lbl.Parent = gunTag
+            gunTag.Parent = ESPFolder
         end
+        gunTag.Adornee = gunDrop
+        gunTag.Enabled = true
     else
-        if GunHighlights["Gun"] then GunHighlights["Gun"].Enabled = false end
+        if gunTag then gunTag.Enabled = false end
     end
 
-    -- 16. Night Mode
+    -- 3. Ночной режим
     if Visuals.Config.NightMode then
         Lighting.ClockTime = 0
     end
@@ -130,79 +162,39 @@ function Visuals.Init(GlobalConfig, UI, Lang)
             Tab = "👁️ Визуалы",
             SecESP = "Игроки и Подсветки",
             ESP = "1. ESP на игроков (Вкл/Выкл)",
-            Style = "2. Стиль ESP (Classic/Chams/Tag/Box)",
+            RoleColors = "2. Цвета для ролей (Murder/Sheriff)",
             Transp = "3. Прозрачность подсветок",
-            TextSize = "4. Размер текста ESP",
-            RoleColors = "5. Цвета для ролей (Murder/Sheriff)",
-            Outlines = "6. Контуры сквозь стены",
-            Chroma = "7. Chroma (Цветовой сдвиг)",
+            TextSize = "4. Размер текста над головой",
 
-            SecTrack = "Отслеживание и Линии",
+            SecTrack = "Отслеживание предметов",
             GunESP = "8. Gun ESP (Подборный пистолет)",
-            Skeleton = "9. Skeleton ESP (Скелет игроков)",
-            Tracers = "10. Tracer линии (От прицела)",
-            HealthBar = "11. Health Bar (Полоска здоровья)",
-            Distance = "12. Дальномер (Дистанция)",
-            SoundVis = "13. Визуализация звуков",
-            LootPointer = "14. Указатель на пистолет/лут",
-            KnifeTraj = "15. Траектория броска ножа",
 
-            SecHUD = "Интерфейс и Эффекты",
-            NightMode = "16. Night Mode (Ночной режим)",
-            Radar = "17. 2D Радар (Миникарта)",
-            Crosshair = "18. Кастомный кроссхейр",
-            AliveCount = "19. Счётчик живых игроков",
-            Timer = "20. Таймер раунда",
-            KillLog = "21. Лог убийств",
-            Watermark = "22. Watermark (Название)",
-            Extra23 = "23. Индикатор ближайшего выхода",
-            Extra24 = "24. Эффекты трассеров выстрела",
-            Extra25 = "25. Фильтр прозрачности стен"
+            SecHUD = "Интерфейс и Окружение",
+            NightMode = "16. Night Mode (Ночной режим)"
         },
         EN = {
             Tab = "👁️ Visuals",
             SecESP = "Players & Highlights",
             ESP = "1. Player ESP (Toggle)",
-            Style = "2. ESP Style",
+            RoleColors = "2. Role Colors (Murder/Sheriff)",
             Transp = "3. ESP Transparency",
             TextSize = "4. ESP Text Size",
-            RoleColors = "5. Role Colors (Murder/Sheriff)",
-            Outlines = "6. Outlines through walls",
-            Chroma = "7. Chroma (Color Shift)",
 
-            SecTrack = "Tracking & Lines",
+            SecTrack = "Item Tracking",
             GunESP = "8. Dropped Gun ESP",
-            Skeleton = "9. Skeleton ESP",
-            Tracers = "10. Tracer Lines",
-            HealthBar = "11. Health Bar",
-            Distance = "12. Distance Tracker",
-            SoundVis = "13. Sound Visualizer",
-            LootPointer = "14. Loot / Gun Arrow Pointer",
-            KnifeTraj = "15. Knife Throw Trajectory",
 
-            SecHUD = "HUD & Environment",
-            NightMode = "16. Night Mode",
-            Radar = "17. 2D Radar (Minimap)",
-            Crosshair = "18. Custom Crosshair",
-            AliveCount = "19. Alive Players Counter",
-            Timer = "20. Round Timer",
-            KillLog = "21. Kill Feed / Log",
-            Watermark = "22. Watermark",
-            Extra23 = "23. Nearest Exit Arrow",
-            Extra24 = "24. Shot Tracers Effect",
-            Extra25 = "25. Wall Transparency Filter"
+            SecHUD = "Environment",
+            NightMode = "16. Night Mode"
         }
     }
 
     local text = T[Lang] or T.RU
     local VisTab = UI:CreateTab(text.Tab)
 
-    -- Секция 1: Игроки и Подсветки (7 функций)
+    -- Секция 1: Игроки
     VisTab:AddSection(text.SecESP)
     VisTab:AddToggle({ Title = text.ESP, Default = Visuals.Config.ESP_Enabled, Callback = function(s) Visuals.Config.ESP_Enabled = s end })
     VisTab:AddToggle({ Title = text.RoleColors, Default = Visuals.Config.RoleColors, Callback = function(s) Visuals.Config.RoleColors = s end })
-    VisTab:AddToggle({ Title = text.Outlines, Default = Visuals.Config.Outlines, Callback = function(s) Visuals.Config.Outlines = s end })
-    VisTab:AddToggle({ Title = text.Chroma, Default = Visuals.Config.Chroma, Callback = function(s) Visuals.Config.Chroma = s end })
     
     VisTab:AddNumberInput({
         Title = text.Transp,
@@ -220,29 +212,13 @@ function Visuals.Init(GlobalConfig, UI, Lang)
         Callback = function(val) Visuals.Config.ESP_TextSize = val end
     })
 
-    -- Секция 2: Отслеживание и Линии (8 функций)
+    -- Секция 2: Предметы
     VisTab:AddSection(text.SecTrack)
     VisTab:AddToggle({ Title = text.GunESP, Default = Visuals.Config.GunESP, Callback = function(s) Visuals.Config.GunESP = s end })
-    VisTab:AddToggle({ Title = text.Skeleton, Default = Visuals.Config.SkeletonESP, Callback = function(s) Visuals.Config.SkeletonESP = s end })
-    VisTab:AddToggle({ Title = text.Tracers, Default = Visuals.Config.Tracers, Callback = function(s) Visuals.Config.Tracers = s end })
-    VisTab:AddToggle({ Title = text.HealthBar, Default = Visuals.Config.HealthBar, Callback = function(s) Visuals.Config.HealthBar = s end })
-    VisTab:AddToggle({ Title = text.Distance, Default = Visuals.Config.Distance, Callback = function(s) Visuals.Config.Distance = s end })
-    VisTab:AddToggle({ Title = text.SoundVis, Default = Visuals.Config.SoundVisuals, Callback = function(s) Visuals.Config.SoundVisuals = s end })
-    VisTab:AddToggle({ Title = text.LootPointer, Default = Visuals.Config.LootPointer, Callback = function(s) Visuals.Config.LootPointer = s end })
-    VisTab:AddToggle({ Title = text.KnifeTraj, Default = Visuals.Config.KnifeTrajectory, Callback = function(s) Visuals.Config.KnifeTrajectory = s end })
 
-    -- Секция 3: HUD и Окружение (10 функций)
+    -- Секция 3: Окружение
     VisTab:AddSection(text.SecHUD)
     VisTab:AddToggle({ Title = text.NightMode, Default = Visuals.Config.NightMode, Callback = function(s) Visuals.Config.NightMode = s end })
-    VisTab:AddToggle({ Title = text.Radar, Default = Visuals.Config.Radar2D, Callback = function(s) Visuals.Config.Radar2D = s end })
-    VisTab:AddToggle({ Title = text.Crosshair, Default = Visuals.Config.Crosshair, Callback = function(s) Visuals.Config.Crosshair = s end })
-    VisTab:AddToggle({ Title = text.AliveCount, Default = Visuals.Config.AliveCounter, Callback = function(s) Visuals.Config.AliveCounter = s end })
-    VisTab:AddToggle({ Title = text.Timer, Default = Visuals.Config.RoundTimer, Callback = function(s) Visuals.Config.RoundTimer = s end })
-    VisTab:AddToggle({ Title = text.KillLog, Default = Visuals.Config.KillLog, Callback = function(s) Visuals.Config.KillLog = s end })
-    VisTab:AddToggle({ Title = text.Watermark, Default = Visuals.Config.Watermark, Callback = function(s) Visuals.Config.Watermark = s end })
-    VisTab:AddToggle({ Title = text.Extra23, Default = false, Callback = function(s) end })
-    VisTab:AddToggle({ Title = text.Extra24, Default = false, Callback = function(s) end })
-    VisTab:AddToggle({ Title = text.Extra25, Default = false, Callback = function(s) end })
 end
 
 return Visuals
