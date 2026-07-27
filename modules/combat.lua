@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Fixed Pickup, AutoShot via Activate, Clean Heartbeat ]] --
+-- [[ MM2 COMBAT MODULE – Hacker Mode Stable + InstantGunPickup Fix ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -6,7 +6,6 @@ local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
@@ -60,12 +59,11 @@ FOVStroke.Thickness = 1.5
 FOVStroke.Color = Color3.fromRGB(160, 32, 240)
 
 -- ================== Состояния и кэш ==================
-local remoteCache = nil
-local lastTool = nil
 local bodyVelocity = nil
 local hackerActive = false
 local lastShotTime = 0
-local SHOT_COOLDOWN = 0.5  -- секунд между выстрелами
+local SHOT_COOLDOWN = 0.5
+local pickedUpThisRound = false   -- флаг однократного подбора
 
 -- ================== Helpers ==================
 local function SimulateClick()
@@ -162,88 +160,41 @@ local function getMap()
     return nil
 end
 
--- ================== Мгновенный подбор пистолета (исправлено) ==================
-local function HandleGunDrop(child)
-    if child.Name ~= "GunDrop" then return end
-
-    if Combat.Config.AutoNotifyPickup then
-        local cb = Instance.new("BindableFunction")
-        cb.OnInvoke = function(arg)
-            if arg == "Get gun!" and child.Parent then
-                local char = LocalPlayer.Character
-                if char and char:FindFirstChild("Head") then
-                    child.CFrame = CFrame.new(char.Head.Position)
-                end
-            end
-        end
-        StarterGui:SetCore("SendNotification", {
-            Title = "The sheriff has died!",
-            Text = "Grab their gun?",
-            Duration = 5,
-            Button1 = "Dismiss",
-            Button2 = "Get gun!",
-            Callback = cb
-        })
-    end
-
-    if Combat.Config.InstantGunPickup then
-        local char = LocalPlayer.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        local root = char.HumanoidRootPart
-        local savedPos = root.CFrame
-
-        local targetPos = child:GetPivot() + Vector3.new(0, 1.5, 0)
-        root.CFrame = targetPos
-        task.wait(0.05)
-
-        firetouchinterest(root, child, 0)
-        firetouchinterest(root, child, 1)
-
-        -- Увеличенная задержка, чтобы игра обработала подбор и не заблокировала ввод
-        task.wait(0.15)
-
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            root.CFrame = savedPos
-        end
-    end
-end
-
-workspace.DescendantAdded:Connect(function(descendant)
-    if descendant.Name == "GunDrop" then
-        HandleGunDrop(descendant)
-    end
-end)
-
--- ================== Кэширование RemoteEvent ==================
-local function getOrFindRemote()
-    if remoteCache then
-        if remoteCache.Parent then
-            return remoteCache
-        else
-            remoteCache = nil
-        end
-    end
-
+-- ================== Мгновенный подбор пистолета (однократный за раунд) ==================
+local function performInstantPickup(gunDrop)
+    if not gunDrop then return end
     local char = LocalPlayer.Character
-    if char then
-        local tool = char:FindFirstChildOfClass("Tool")
-        if tool and tool ~= lastTool then
-            lastTool = tool
-            remoteCache = tool:FindFirstChildOfClass("RemoteEvent")
-            if remoteCache then return remoteCache end
-        end
-    end
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local root = char.HumanoidRootPart
+    local savedPos = root.CFrame
 
-    local names = {"ShootGun", "Shoot", "FireGun", "GunEvent", "ShootEvent"}
-    for _, name in ipairs(names) do
-        local ev = ReplicatedStorage:FindFirstChild(name, true)
-        if ev and ev:IsA("RemoteEvent") then
-            remoteCache = ev
-            return ev
-        end
+    root.CFrame = gunDrop:GetPivot() + Vector3.new(0, 1.5, 0)
+    task.wait(0.05)
+    firetouchinterest(root, gunDrop, 0)
+    firetouchinterest(root, gunDrop, 1)
+    task.wait(0.15)  -- увеличенная задержка для восстановления фокуса ввода
+
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        root.CFrame = savedPos
     end
-    return nil
+    pickedUpThisRound = true
 end
+
+-- Проверка на появление GunDrop (только если включен InstantGunPickup и ещё не подбирали в этом раунде)
+local function checkGunDrop()
+    if not Combat.Config.InstantGunPickup or pickedUpThisRound then return end
+    local map = getMap()
+    if not map then return end
+    local gunDrop = map:FindFirstChild("GunDrop")
+    if gunDrop then
+        performInstantPickup(gunDrop)
+    end
+end
+
+-- Сброс флага при возрождении (новый раунд)
+LocalPlayer.CharacterAdded:Connect(function()
+    pickedUpThisRound = false
+end)
 
 -- ================== Управление BodyVelocity ==================
 local function enableAntiGravity()
@@ -284,8 +235,6 @@ local function startHeartbeat()
             FOVFrame.Visible = Combat.Config.AimEnabled
 
             -- ================= АИМБОТ =================
-            local targetPos = nil -- для передачи в блок выстрела
-
             if Combat.Config.AimEnabled then
                 if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
                     hackerActive = true
@@ -309,7 +258,7 @@ local function startHeartbeat()
                             end
 
                             -- Цель с предикшеном
-                            targetPos = mHead.Position
+                            local targetPos = mHead.Position
                             if Combat.Config.Prediction > 0 then
                                 targetPos += mRoot.Velocity * (Combat.Config.Prediction / 1000)
                             end
@@ -317,7 +266,7 @@ local function startHeartbeat()
                             -- ФИКСАЦИЯ КАМЕРЫ
                             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
 
-                            -- Экипировка (однократно, если нужно)
+                            -- Экипировка (однократно)
                             local tool = char:FindFirstChildOfClass("Tool")
                             if not tool or tool.Name ~= "Gun" then
                                 if Combat.Config.AutoEquipGun then
@@ -328,6 +277,18 @@ local function startHeartbeat()
                                     end
                                 end
                             end
+
+                            -- Авто-выстрел через SimulateClick (честный клиентский выстрел)
+                            if Combat.Config.AutoShot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
+                                local currentTool = char:FindFirstChildOfClass("Tool")
+                                if currentTool and (currentTool.Name == "Gun" or currentTool:FindFirstChild("Gun")) then
+                                    SimulateClick()
+                                    lastShotTime = tick()
+                                end
+                            end
+
+                            -- Проверка на подбор пистолета (однократный)
+                            checkGunDrop()
                         end
                     else
                         hackerActive = false
@@ -338,7 +299,7 @@ local function startHeartbeat()
                     disableAntiGravity()
                     -- Стандартные режимы
                     local target = GetAimTarget()
-                    targetPos = target and target.Position
+                    local targetPos = target and target.Position
                     if targetPos and Combat.Config.Prediction > 0 then
                         local root = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
                         if root then targetPos += root.Velocity * (Combat.Config.Prediction / 1000) end
@@ -350,34 +311,21 @@ local function startHeartbeat()
                             SmoothAim(targetPos)
                         end
                     end
+                    if Combat.Config.AutoShot and targetPos and (tick() - lastShotTime >= SHOT_COOLDOWN) then
+                        local tool = char:FindFirstChildOfClass("Tool")
+                        if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
+                            -- В обычных режимах тоже используем SimulateClick для надёжности
+                            SimulateClick()
+                            lastShotTime = tick()
+                        end
+                    end
                 end
             else
                 hackerActive = false
                 disableAntiGravity()
             end
 
-            -- ================= АВТО-ВЫСТРЕЛ (исправлен) =================
-            if Combat.Config.AutoShot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
-                local currentTool = char:FindFirstChildOfClass("Tool")
-                if currentTool and (currentTool.Name == "Gun" or currentTool:FindFirstChild("Gun")) then
-                    lastShotTime = tick()
-                    
-                    -- Вызываем штатную активацию оружия (эквивалент нажатия ЛКМ)
-                    pcall(function()
-                        currentTool:Activate()
-                    end)
-                    
-                    -- Дополнительно отправляем координаты на сервер (если есть RemoteEvent)
-                    local remote = getOrFindRemote()
-                    if remote and targetPos then
-                        pcall(function()
-                            remote:FireServer(targetPos)
-                        end)
-                    end
-                end
-            end
-
-            -- Триггер-бот (с кулдауном, использует SimulateClick)
+            -- Триггер-бот
             if Combat.Config.TriggerBot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                 local mousePos = UserInputService:GetMouseLocation()
                 local ray = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
@@ -430,32 +378,18 @@ end
 
 startHeartbeat()
 
--- ================== Бинды клавиш ==================
+-- ================== Бинды клавиш (без изменений) ==================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
     if input.KeyCode == Combat.Config.ShootKey then
-        -- Ручная стрельба доступна только если авто‑выстрел выключен (или не в Hacker с авто‑выстрелом)
-        if not (Combat.Config.AimEnabled and Combat.Config.AimMode == "Hacker" and Combat.Config.AutoShot) then
-            SimulateClick()
-        end
+        SimulateClick()
     elseif input.KeyCode == Combat.Config.PickupKey then
+        -- Ручной подбор (если не сработал автоматический или для удобства)
         local map = getMap()
         local gunDrop = map and map:FindFirstChild("GunDrop")
         if gunDrop then
-            local char = LocalPlayer.Character
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                local root = char.HumanoidRootPart
-                local savedPos = root.CFrame
-                root.CFrame = gunDrop:GetPivot() + Vector3.new(0, 1.5, 0)
-                task.wait(0.05)
-                firetouchinterest(root, gunDrop, 0)
-                firetouchinterest(root, gunDrop, 1)
-                task.wait(0.15)  -- увеличенная задержка для возврата фокуса
-                if char:FindFirstChild("HumanoidRootPart") then
-                    root.CFrame = savedPos
-                end
-            end
+            performInstantPickup(gunDrop)
         end
     elseif input.KeyCode == Combat.Config.FindSheriffKey then
         local sheriff = FindSheriff()
