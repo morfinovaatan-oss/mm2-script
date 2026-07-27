@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Instant Gun Pickup + Custom Keybinds ]] --
+-- [[ MM2 COMBAT MODULE – Fixed Instant Pickup + Stable ESP support ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -139,7 +139,17 @@ local function SmoothAim(targetPos, speed)
     Camera.CFrame = current:Lerp(desired, speed)
 end
 
--- ================== Мгновенный подбор пистолета ==================
+-- ================== Улучшенный поиск карты ==================
+local function getMap()
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v.Name == "Spawns" and v.Parent.Name ~= "Lobby" then
+            return v.Parent
+        end
+    end
+    return nil
+end
+
+-- ================== Мгновенный подбор пистолета (исправлено!) ==================
 local function HandleGunDrop(child)
     if child.Name ~= "GunDrop" then return end
 
@@ -172,7 +182,8 @@ local function HandleGunDrop(child)
         local savedPos = root.CFrame
 
         -- Телепорт к пистолету
-        root.CFrame = child:GetPivot() + Vector3.new(0, 1.5, 0)
+        local targetPos = child:GetPivot() + Vector3.new(0, 1.5, 0)
+        root.CFrame = targetPos
         task.wait(0.05)
 
         -- Касание
@@ -181,14 +192,19 @@ local function HandleGunDrop(child)
 
         task.wait(0.1)
 
-        -- Возврат
+        -- Возврат (только если персонаж всё ещё существует)
         if char and char:FindFirstChild("HumanoidRootPart") then
             root.CFrame = savedPos
         end
     end
 end
 
-Workspace.ChildAdded:Connect(HandleGunDrop)
+-- Отслеживаем появление GunDrop В ЛЮБОМ МЕСТЕ Workspace (включая вложенные модели)
+workspace.DescendantAdded:Connect(function(descendant)
+    if descendant.Name == "GunDrop" then
+        HandleGunDrop(descendant)
+    end
+end)
 
 -- ================== Main Loop ==================
 task.spawn(function()
@@ -199,8 +215,9 @@ task.spawn(function()
         if input.KeyCode == Combat.Config.ShootKey then
             SimulateClick()
         elseif input.KeyCode == Combat.Config.PickupKey then
-            -- Ручной мгновенный подбор (если пистолет уже на карте)
-            local gunDrop = Workspace:FindFirstChild("GunDrop")
+            -- Ручной мгновенный подбор (ищем GunDrop внутри карты)
+            local map = getMap()
+            local gunDrop = map and map:FindFirstChild("GunDrop")
             if gunDrop then
                 local char = LocalPlayer.Character
                 if char and char:FindFirstChild("HumanoidRootPart") then
@@ -463,29 +480,29 @@ function Combat.Init(GlobalConfig, UI, Lang)
     -- Keybinds Section
     tab:AddSection(text.SecKeys)
 
-    local function addBindLabelAndButton(keyName, configKey)
-        local label = tab:AddLabel(keyName .. " : " .. tostring(configKey):gsub("Enum.KeyCode.", ""))
+    local function addBindLabelAndButton(keyName, configKeyRef)
+        local label = tab:AddLabel(keyName .. " : " .. tostring(configKeyRef):gsub("Enum.KeyCode.", ""))
         tab:AddButton(keyName .. " (нажмите для смены)", function()
-            local oldKey = configKey
+            local oldKey = configKeyRef
             label.Text = keyName .. " : ... (ожидание)"
             local conn
             conn = UserInputService.InputBegan:Connect(function(input, gp)
                 if gp then return end
                 conn:Disconnect()
-                configKey = input.KeyCode
+                Combat.Config[configKeyRef] = input.KeyCode  -- обновляем значение в таблице
                 label.Text = keyName .. " : " .. tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
             end)
             task.wait(3)
-            if configKey == oldKey then
+            if Combat.Config[configKeyRef] == oldKey then
                 label.Text = keyName .. " : " .. tostring(oldKey):gsub("Enum.KeyCode.", "")
             end
         end)
     end
 
-    addBindLabelAndButton(text.ShootKey, Combat.Config.ShootKey)
-    addBindLabelAndButton(text.PickupKey, Combat.Config.PickupKey)
-    addBindLabelAndButton(text.FindMurdererKey, Combat.Config.FindMurdererKey)
-    addBindLabelAndButton(text.FindSheriffKey, Combat.Config.FindSheriffKey)
+    addBindLabelAndButton(text.ShootKey, "ShootKey")
+    addBindLabelAndButton(text.PickupKey, "PickupKey")
+    addBindLabelAndButton(text.FindMurdererKey, "FindMurdererKey")
+    addBindLabelAndButton(text.FindSheriffKey, "FindSheriffKey")
 
     -- Automation Section
     tab:AddSection(text.SecAuto)
