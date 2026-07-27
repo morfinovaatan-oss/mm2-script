@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Fixed Instant Pickup + Stable ESP support + Wallbang Hacker Mode ]] --
+-- [[ MM2 COMBAT MODULE – Fixed Wallbang Hacker Mode ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -24,7 +24,7 @@ Combat.Config = {
     -- Автоматизация
     AutoEquipGun = false,
     AutoShot = false,
-    InstantGunPickup = false,   -- мгновенный подбор при появлении пистолета
+    InstantGunPickup = false,
     OneTapKnife = false,
     NoRecoil = false,
     AntiAim = false,
@@ -35,7 +35,7 @@ Combat.Config = {
     PickupKey = Enum.KeyCode.R,
     FindMurdererKey = Enum.KeyCode.Z,
     FindSheriffKey = Enum.KeyCode.X,
-    AutoNotifyPickup = true,    -- уведомление при появлении пистолета
+    AutoNotifyPickup = true,
 }
 
 -- ================== FOV Circle GUI ==================
@@ -140,7 +140,7 @@ local function SmoothAim(targetPos, speed)
     Camera.CFrame = current:Lerp(desired, speed)
 end
 
--- ================== Улучшенный поиск карты ==================
+-- ================== Поиск карты ==================
 local function getMap()
     for _, v in ipairs(Workspace:GetDescendants()) do
         if v.Name == "Spawns" and v.Parent.Name ~= "Lobby" then
@@ -200,6 +200,29 @@ workspace.DescendantAdded:Connect(function(descendant)
         HandleGunDrop(descendant)
     end
 end)
+
+-- ================== Поиск RemoteEvent для выстрела ==================
+local shootRemote = nil
+local function getShootRemote()
+    if shootRemote then return shootRemote end
+    local names = {"ShootGun", "Shoot", "FireGun", "GunEvent", "ShootEvent"}
+    for _, name in ipairs(names) do
+        local remote = ReplicatedStorage:FindFirstChild(name, true)
+        if remote and remote:IsA("RemoteEvent") then
+            shootRemote = remote
+            return remote
+        end
+    end
+    -- Иногда RemoteEvent лежит прямо в оружии персонажа
+    if LocalPlayer.Character then
+        local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
+        if tool and tool:FindFirstChildOfClass("RemoteEvent") then
+            shootRemote = tool:FindFirstChildOfClass("RemoteEvent")
+            return shootRemote
+        end
+    end
+    return nil
+end
 
 -- ================== Main Loop ==================
 task.spawn(function()
@@ -289,17 +312,16 @@ task.spawn(function()
                 if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
                     local murderer = FindMurderer()
                     if murderer and murderer.Character then
-                        local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
-                        local mHead = murderer.Character:FindFirstChild("Head") or mRoot
-                        
+                        local mHead = murderer.Character:FindFirstChild("Head") or murderer.Character:FindFirstChild("HumanoidRootPart")
                         if mHead then
                             -- 1. Вычисляем позицию с учетом упреждения
                             local targetPos = mHead.Position
+                            local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
                             if Combat.Config.Prediction > 0 and mRoot then
                                 targetPos = targetPos + (mRoot.Velocity * (Combat.Config.Prediction / 1000))
                             end
 
-                            -- 2. Авто-экипировка пистолета
+                            -- 2. Авто-экипировка пистолета (если включена)
                             if Combat.Config.AutoEquipGun then
                                 local currentTool = char:FindFirstChildOfClass("Tool")
                                 if not currentTool or (currentTool.Name ~= "Gun" and not currentTool:FindFirstChild("Gun")) then
@@ -316,15 +338,12 @@ task.spawn(function()
 
                             -- 4. Стрельба сквозь стены (Wallbang)
                             if Combat.Config.AutoShot then
-                                local shootRemote = ReplicatedStorage:FindFirstChild("ShootGun", true)
-                                if shootRemote and shootRemote:IsA("RemoteEvent") then
-                                    -- Отправляем сигнал выстрела напрямую серверу с позицией мёрдера
-                                    shootRemote:FireServer(1, targetPos, "Shoot")
-                                    shootRemote:FireServer(targetPos)
-                                end
-                                
-                                local tool = char:FindFirstChildOfClass("Tool")
-                                if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
+                                local remote = getShootRemote()
+                                if remote then
+                                    -- Отправляем позицию цели напрямую в RemoteEvent (выстрел без проверки препятствий)
+                                    remote:FireServer(targetPos)
+                                else
+                                    -- Запасной вариант: обычный выстрел (не пробьёт стены)
                                     SimulateClick()
                                 end
                             end
@@ -517,7 +536,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
             conn = UserInputService.InputBegan:Connect(function(input, gp)
                 if gp then return end
                 conn:Disconnect()
-                Combat.Config[configKeyRef] = input.KeyCode  -- обновляем значение в таблице
+                Combat.Config[configKeyRef] = input.KeyCode
                 label.Text = keyName .. " : " .. tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
             end)
             task.wait(3)
