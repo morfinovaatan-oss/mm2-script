@@ -31,6 +31,7 @@ Combat.Config = {
     NoRecoil = false,
     AntiAim = false,
     FakeLag = false,
+    HackerDistance = 5,    -- Дистанция от 5 до 20 метров
 
     -- Бинды
     ShootKey = Enum.KeyCode.C,
@@ -61,7 +62,7 @@ FOVStroke.Color = Color3.fromRGB(160, 32, 240)
 -- ================== Helpers ==================
 local function SimulateClick()
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-    task.wait(0.02)
+    task.wait(0.05)
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
 end
 
@@ -255,7 +256,42 @@ local function getShootRemote()
     return nil
 end
 
--- ================== Hacker TP Kill Logic ==================
+-- ================== Настоящий выстрел с эмуляцией оружия ==================
+local function FireGunAction(targetHeadPos, rootPos)
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    -- Проверяем/экипируем пистолет
+    local currentTool = char:FindFirstChildOfClass("Tool")
+    if not currentTool or (currentTool.Name ~= "Gun" and not currentTool:FindFirstChild("Gun")) then
+        local backpack = LocalPlayer:FindFirstChildOfClass("Backpack") or LocalPlayer:FindFirstChild("Backpack")
+        local gun = backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChildOfClass("Tool"))
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if gun and hum then
+            hum:EquipTool(gun)
+            task.wait(0.15) -- даем серверу время на экипировку
+        end
+    end
+
+    -- Пробуем вызвать RemoteEvent, если есть
+    local remote = getShootRemote()
+    if remote then
+        remote:FireServer(targetHeadPos, rootPos)
+    end
+
+    -- Дополнительно активируем инструмент в руках (если это Tool)
+    local tool = char:FindFirstChildOfClass("Tool")
+    if tool then
+        pcall(function()
+            tool:Activate()
+        end)
+    end
+
+    -- Эмулируем клик мыши для надежности
+    SimulateClick()
+end
+
+-- ================== Hacker Safe TP + Camera Lock Logic ==================
 local tpKillCooldown = false
 
 local function ExecuteHackerShot()
@@ -273,7 +309,7 @@ local function ExecuteHackerShot()
         if mRoot and mHead then
             tpKillCooldown = true
             
-            -- Авто-экипировка пистолета перед телепортом
+            -- Авто-экипировка пистолета
             if Combat.Config.AutoEquipGun then
                 local currentTool = char:FindFirstChildOfClass("Tool")
                 if not currentTool or (currentTool.Name ~= "Gun" and not currentTool:FindFirstChild("Gun")) then
@@ -286,28 +322,41 @@ local function ExecuteHackerShot()
             end
             
             local savedPos = myRoot.CFrame
+            local distOffset = math.clamp(Combat.Config.HackerDistance, 5, 20)
             
-            -- 1. Телепортируемся за спину мардеру
-            myRoot.CFrame = mRoot.CFrame * CFrame.new(0, 0, 3.5)
+            -- 1. Аккуратный телепорт на заданную дистанцию сзади мардера
+            myRoot.CFrame = mRoot.CFrame * CFrame.new(0, 0, distOffset)
             
-            -- 2. Ожидание такта физики для регистрации позиции сервером
-            RunService.Heartbeat:Wait()
+            -- Даем серверу зафиксировать нашу позицию (ждем 3 кадра)
+            for i = 1, 3 do
+                RunService.Heartbeat:Wait()
+                if not myRoot or not mRoot then break end
+                -- Обновляем позицию на случай движения мардера
+                myRoot.CFrame = mRoot.CFrame * CFrame.new(0, 0, distOffset)
+                
+                -- Жёстко фиксируем камеру на голове мардера
+                local targetPos = mHead.Position
+                if Combat.Config.Prediction > 0 then
+                    targetPos = targetPos + (mRoot.AssemblyLinearVelocity * (Combat.Config.Prediction / 1000))
+                end
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+            end
             
-            -- 3. Выстрел по точным координатам
-            local targetPos = mHead.Position
+            -- 2. Производим надежный выстрел
+            local finalTargetPos = mHead.Position
             if Combat.Config.Prediction > 0 then
-                targetPos = targetPos + (mRoot.AssemblyLinearVelocity * (Combat.Config.Prediction / 1000))
+                finalTargetPos = finalTargetPos + (mRoot.AssemblyLinearVelocity * (Combat.Config.Prediction / 1000))
             end
             
-            local remote = getShootRemote()
-            if remote then
-                remote:FireServer(targetPos, myRoot.Position)
-            else
-                SimulateClick()
-            end
+            FireGunAction(finalTargetPos, myRoot.Position)
             
-            -- 4. Возврат на исходную позицию
-            myRoot.CFrame = savedPos
+            -- Задержка перед возвратом, чтобы сервер точно обработал урон
+            task.wait(0.15)
+            
+            -- 3. Возврат на исходную позицию
+            if char and myRoot then
+                myRoot.CFrame = savedPos
+            end
             
             task.delay(1, function()
                 tpKillCooldown = false
@@ -324,7 +373,11 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
             ExecuteHackerShot()
         else
-            SimulateClick()
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local target = GetAimTarget()
+            local targetPos = target and target.Position or (Camera.CFrame.Position + Camera.CFrame.LookVector * 100)
+            FireGunAction(targetPos, root and root.Position or Vector3.new())
         end
     elseif input.KeyCode == Combat.Config.PickupKey then
         local map = getMap()
@@ -409,11 +462,9 @@ RunService.RenderStepped:Connect(function()
     -- ================= АИМБОТ =================
     if Combat.Config.AimEnabled then
         if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
-            -- Автоматический TP Kill через автовыстрел, если включен AutoShot
             if Combat.Config.AutoShot then
                 ExecuteHackerShot()
             else
-                -- Просто доворачиваем камеру/подготавливаем позицию, если автовыстрел выключен
                 local murderer = FindMurderer()
                 if murderer and murderer.Character then
                     local mHead = murderer.Character:FindFirstChild("Head") or murderer.Character:FindFirstChild("HumanoidRootPart")
@@ -445,10 +496,12 @@ RunService.RenderStepped:Connect(function()
                 end
             end
 
+            -- Исправленный автовыстрел
             if Combat.Config.AutoShot and targetPos then
                 local tool = char:FindFirstChildOfClass("Tool")
                 if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-                    SimulateClick()
+                    local root = char:FindFirstChild("HumanoidRootPart")
+                    FireGunAction(targetPos, root and root.Position or Vector3.new())
                 end
             end
         end
@@ -465,7 +518,8 @@ RunService.RenderStepped:Connect(function()
         if result and result.Instance then
             local hitPlayer = Players:GetPlayerFromCharacter(result.Instance.Parent) or Players:GetPlayerFromCharacter(result.Instance.Parent.Parent)
             if hitPlayer and hitPlayer ~= LocalPlayer and IsThreat(hitPlayer) then
-                SimulateClick()
+                local root = char:FindFirstChild("HumanoidRootPart")
+                FireGunAction(result.Position, root and root.Position or Vector3.new())
             end
         end
     end
@@ -539,6 +593,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
             InstantPickup = "Мгновенный подбор",
             AutoNotifyPickup = "Уведомление о пистолете",
             OneTap = "One Tap Knife",
+            HackerDist = "Дистанция ТП (Hacker)",
 
             SecMisc = "Прочее",
             NoRecoil = "Без отдачи",
@@ -568,6 +623,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
             InstantPickup = "Instant Pickup",
             AutoNotifyPickup = "Notify gun drop",
             OneTap = "One Tap Knife",
+            HackerDist = "Hacker TP Distance",
 
             SecMisc = "Misc",
             NoRecoil = "No Recoil",
@@ -592,6 +648,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
     tab:AddNumberInput({ Title = text.Smooth, Min = 1, Max = 10, Default = Combat.Config.SmoothSpeed, Callback = function(v) Combat.Config.SmoothSpeed = v end })
     tab:AddNumberInput({ Title = text.FOV, Min = 30, Max = 500, Default = Combat.Config.FOV, Callback = function(v) Combat.Config.FOV = v end })
     tab:AddNumberInput({ Title = text.FOVTrans, Min = 0, Max = 1, Default = Combat.Config.FOVTransparency, Callback = function(v) Combat.Config.FOVTransparency = v end })
+    tab:AddNumberInput({ Title = text.HackerDist, Min = 5, Max = 20, Default = Combat.Config.HackerDistance, Callback = function(v) Combat.Config.HackerDistance = v end })
     tab:AddToggle({ Title = text.Trigger, Default = false, Callback = function(s) Combat.Config.TriggerBot = s end })
 
     -- Keybinds Section
@@ -631,7 +688,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
     tab:AddSection(text.SecAuto)
     tab:AddToggle({ Title = text.AutoEquip, Default = false, Callback = function(s) Combat.Config.AutoEquipGun = s end })
     tab:AddToggle({ Title = text.AutoShot, Default = false, Callback = function(s) Combat.Config.AutoShot = s end })
-    tab:AddToggle({ Title = text.InstantPickup, Default = false, Callback = function(s) Combat.Config.InstantGunPickup = s end })
+    tab:AddToggle({ Title = text.InstantPickup, Default = false, Callback = function(s) Combat.Config.InstantGunPkg = s end })
     tab:AddToggle({ Title = text.AutoNotifyPickup, Default = true, Callback = function(s) Combat.Config.AutoNotifyPickup = s end })
     tab:AddToggle({ Title = text.OneTap, Default = false, Callback = function(s) Combat.Config.OneTapKnife = s end })
 
