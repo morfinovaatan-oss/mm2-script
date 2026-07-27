@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Fixed & Optimized ]] --
+-- [[ MM2 COMBAT MODULE – Hacker Mode Fixed + AutoShot Working ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -7,11 +7,9 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local StarterGui = game:GetService("StarterGui")
-
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
+local StarterGui = game:GetService("StarterGui")
 
 Combat.Config = {
     -- Аимбот
@@ -23,6 +21,9 @@ Combat.Config = {
     FOVTransparency = 0.5,
     TriggerBot = false,
 
+    -- Настройки Hacker Mode
+    HackerDistance = 15,    -- дистанция до мёрдера (5-20 метров)
+
     -- Автоматизация
     AutoEquipGun = false,
     AutoShot = false,
@@ -31,7 +32,6 @@ Combat.Config = {
     NoRecoil = false,
     AntiAim = false,
     FakeLag = false,
-    HackerDistance = 5,    -- Дистанция от 5 до 20 метров
 
     -- Бинды
     ShootKey = Enum.KeyCode.C,
@@ -54,7 +54,6 @@ FOVFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 FOVFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 FOVFrame.Visible = false
 Instance.new("UICorner", FOVFrame).CornerRadius = UDim.new(1, 0)
-
 local FOVStroke = Instance.new("UIStroke", FOVFrame)
 FOVStroke.Thickness = 1.5
 FOVStroke.Color = Color3.fromRGB(160, 32, 240)
@@ -62,51 +61,35 @@ FOVStroke.Color = Color3.fromRGB(160, 32, 240)
 -- ================== Helpers ==================
 local function SimulateClick()
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-    task.wait(0.05)
+    task.wait(0.02)
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-end
-
-local function GetBasePart(inst)
-    if not inst then return nil end
-    if inst:IsA("BasePart") then return inst end
-    if inst:IsA("Model") then
-        return inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true)
-    end
-    return nil
 end
 
 local function IsThreat(player)
     if player == LocalPlayer then return false end
     local char = player.Character
     if not char then return false end
-    local backpack = player:FindFirstChildOfClass("Backpack") or player:FindFirstChild("Backpack")
+    local backpack = player:FindFirstChild("Backpack")
     local hasKnife = char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife"))
     local hasGun   = char:FindFirstChild("Gun")   or (backpack and backpack:FindFirstChild("Gun"))
-    return (hasKnife ~= nil) or (hasGun ~= nil)
+    return hasKnife or hasGun
 end
 
 local function IsLocalSheriff()
     local char = LocalPlayer.Character
     if not char then return false end
-    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack") or LocalPlayer:FindFirstChild("Backpack")
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
     return (char:FindFirstChild("Gun") ~= nil) or (backpack and backpack:FindFirstChild("Gun") ~= nil)
 end
 
 local function FindMurderer()
     local closest = nil
     local minDist = math.huge
-    local localChar = LocalPlayer.Character
-    local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
-    
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            local root = p.Character:FindFirstChild("HumanoidRootPart")
-            local hum = p.Character:FindFirstChildOfClass("Humanoid")
-            local backpack = p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack")
-            local hasKnife = p.Character:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife"))
-            
-            if hasKnife and hum and hum.Health > 0 and root and localRoot then
-                local dist = (root.Position - localRoot.Position).Magnitude
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local hasKnife = p.Character:FindFirstChild("Knife") or (p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Knife"))
+            if hasKnife and p.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+                local dist = (p.Character.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
                 if dist < minDist then
                     minDist = dist
                     closest = p
@@ -118,14 +101,11 @@ local function FindMurderer()
 end
 
 local function FindSheriff()
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            local hum = p.Character:FindFirstChildOfClass("Humanoid")
-            local backpack = p:FindFirstChildOfClass("Backpack") or p:FindFirstChild("Backpack")
-            local hasGun = p.Character:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun"))
-            local hasRevolver = p.Character:FindFirstChild("Revolver") or (backpack and backpack:FindFirstChild("Revolver"))
-            
-            if (hasGun or hasRevolver) and hum and hum.Health > 0 then
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local hasGun = p.Character:FindFirstChild("Gun") or (p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Gun"))
+            local hasRevolver = p.Character:FindFirstChild("Revolver") or (p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Revolver"))
+            if (hasGun or hasRevolver) and p.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
                 return p
             end
         end
@@ -137,8 +117,7 @@ local function GetAimTarget()
     local mousePos = UserInputService:GetMouseLocation()
     local best = nil
     local bestDist = Combat.Config.FOV
-
-    for _, p in ipairs(Players:GetPlayers()) do
+    for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
             local hum = p.Character:FindFirstChildOfClass("Humanoid")
             local head = p.Character:FindFirstChild("Head")
@@ -158,16 +137,16 @@ local function GetAimTarget()
 end
 
 local function SmoothAim(targetPos, speed)
-    speed = (speed or Combat.Config.SmoothSpeed) / 10
+    speed = speed or Combat.Config.SmoothSpeed / 10
     local current = Camera.CFrame
-    local desired = CFrame.lookAt(current.Position, targetPos)
-    Camera.CFrame = current:Lerp(desired, math.clamp(speed, 0.01, 1))
+    local desired = CFrame.new(current.Position, targetPos)
+    Camera.CFrame = current:Lerp(desired, speed)
 end
 
 -- ================== Поиск карты ==================
 local function getMap()
     for _, v in ipairs(Workspace:GetDescendants()) do
-        if v.Name == "Spawns" and v.Parent and v.Parent.Name ~= "Lobby" then
+        if v.Name == "Spawns" and v.Parent.Name ~= "Lobby" then
             return v.Parent
         end
     end
@@ -183,9 +162,8 @@ local function HandleGunDrop(child)
         cb.OnInvoke = function(arg)
             if arg == "Get gun!" and child.Parent then
                 local char = LocalPlayer.Character
-                local part = GetBasePart(child)
-                if char and char:FindFirstChild("Head") and part then
-                    part.CFrame = CFrame.new(char.Head.Position)
+                if char and char:FindFirstChild("Head") then
+                    child.CFrame = CFrame.new(char.Head.Position)
                 end
             end
         end
@@ -204,26 +182,23 @@ local function HandleGunDrop(child)
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
         local root = char.HumanoidRootPart
         local savedPos = root.CFrame
-        local targetPart = GetBasePart(child)
 
-        if targetPart then
-            root.CFrame = targetPart.CFrame + Vector3.new(0, 1.5, 0)
-            task.wait(0.05)
+        local targetPos = child:GetPivot() + Vector3.new(0, 1.5, 0)
+        root.CFrame = targetPos
+        task.wait(0.05)
 
-            if firetouchinterest then
-                firetouchinterest(root, targetPart, 0)
-                firetouchinterest(root, targetPart, 1)
-            end
+        firetouchinterest(root, child, 0)
+        firetouchinterest(root, child, 1)
 
-            task.wait(0.1)
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                root.CFrame = savedPos
-            end
+        task.wait(0.1)
+
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            root.CFrame = savedPos
         end
     end
 end
 
-Workspace.DescendantAdded:Connect(function(descendant)
+workspace.DescendantAdded:Connect(function(descendant)
     if descendant.Name == "GunDrop" then
         HandleGunDrop(descendant)
     end
@@ -232,8 +207,7 @@ end)
 -- ================== Поиск RemoteEvent для выстрела ==================
 local shootRemote = nil
 local function getShootRemote()
-    if shootRemote and shootRemote.Parent then return shootRemote end
-    
+    if shootRemote then return shootRemote end
     local names = {"ShootGun", "Shoot", "FireGun", "GunEvent", "ShootEvent"}
     for _, name in ipairs(names) do
         local remote = ReplicatedStorage:FindFirstChild(name, true)
@@ -242,328 +216,222 @@ local function getShootRemote()
             return remote
         end
     end
-    
     if LocalPlayer.Character then
         local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
-        if tool then
-            local remote = tool:FindFirstChildOfClass("RemoteEvent")
-            if remote then
-                shootRemote = remote
-                return shootRemote
-            end
+        if tool and tool:FindFirstChildOfClass("RemoteEvent") then
+            shootRemote = tool:FindFirstChildOfClass("RemoteEvent")
+            return shootRemote
         end
     end
     return nil
 end
 
--- ================== Настоящий выстрел с эмуляцией оружия ==================
-local function FireGunAction(targetHeadPos, rootPos)
-    local char = LocalPlayer.Character
-    if not char then return end
+-- ================== Main Loop ==================
+task.spawn(function()
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
 
-    -- Проверяем/экипируем пистолет
-    local currentTool = char:FindFirstChildOfClass("Tool")
-    if not currentTool or (currentTool.Name ~= "Gun" and not currentTool:FindFirstChild("Gun")) then
-        local backpack = LocalPlayer:FindFirstChildOfClass("Backpack") or LocalPlayer:FindFirstChild("Backpack")
-        local gun = backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChildOfClass("Tool"))
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if gun and hum then
-            hum:EquipTool(gun)
-            task.wait(0.15) -- даем серверу время на экипировку
-        end
-    end
-
-    -- Пробуем вызвать RemoteEvent, если есть
-    local remote = getShootRemote()
-    if remote then
-        remote:FireServer(targetHeadPos, rootPos)
-    end
-
-    -- Дополнительно активируем инструмент в руках (если это Tool)
-    local tool = char:FindFirstChildOfClass("Tool")
-    if tool then
-        pcall(function()
-            tool:Activate()
-        end)
-    end
-
-    -- Эмулируем клик мыши для надежности
-    SimulateClick()
-end
-
--- ================== Hacker Safe TP + Camera Lock Logic ==================
-local tpKillCooldown = false
-
-local function ExecuteHackerShot()
-    if tpKillCooldown then return end
-    
-    local char = LocalPlayer.Character
-    local myRoot = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    local murderer = FindMurderer()
-    
-    if myRoot and murderer and murderer.Character then
-        local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
-        local mHead = murderer.Character:FindFirstChild("Head") or mRoot
-        
-        if mRoot and mHead then
-            tpKillCooldown = true
-            
-            -- Авто-экипировка пистолета
-            if Combat.Config.AutoEquipGun then
-                local currentTool = char:FindFirstChildOfClass("Tool")
-                if not currentTool or (currentTool.Name ~= "Gun" and not currentTool:FindFirstChild("Gun")) then
-                    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack") or LocalPlayer:FindFirstChild("Backpack")
-                    local gun = backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChildOfClass("Tool"))
-                    if gun and hum then
-                        hum:EquipTool(gun)
+        if input.KeyCode == Combat.Config.ShootKey then
+            SimulateClick()
+        elseif input.KeyCode == Combat.Config.PickupKey then
+            local map = getMap()
+            local gunDrop = map and map:FindFirstChild("GunDrop")
+            if gunDrop then
+                local char = LocalPlayer.Character
+                if char and char:FindFirstChild("HumanoidRootPart") then
+                    local root = char.HumanoidRootPart
+                    local savedPos = root.CFrame
+                    root.CFrame = gunDrop:GetPivot() + Vector3.new(0, 1.5, 0)
+                    task.wait(0.05)
+                    firetouchinterest(root, gunDrop, 0)
+                    firetouchinterest(root, gunDrop, 1)
+                    task.wait(0.1)
+                    if char:FindFirstChild("HumanoidRootPart") then
+                        root.CFrame = savedPos
                     end
                 end
             end
-            
-            local savedPos = myRoot.CFrame
-            local distOffset = math.clamp(Combat.Config.HackerDistance, 5, 20)
-            
-            -- 1. Аккуратный телепорт на заданную дистанцию сзади мардера
-            myRoot.CFrame = mRoot.CFrame * CFrame.new(0, 0, distOffset)
-            
-            -- Даем серверу зафиксировать нашу позицию (ждем 3 кадра)
-            for i = 1, 3 do
-                RunService.Heartbeat:Wait()
-                if not myRoot or not mRoot then break end
-                -- Обновляем позицию на случай движения мардера
-                myRoot.CFrame = mRoot.CFrame * CFrame.new(0, 0, distOffset)
-                
-                -- Жёстко фиксируем камеру на голове мардера
-                local targetPos = mHead.Position
-                if Combat.Config.Prediction > 0 then
-                    targetPos = targetPos + (mRoot.AssemblyLinearVelocity * (Combat.Config.Prediction / 1000))
-                end
-                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-            end
-            
-            -- 2. Производим надежный выстрел
-            local finalTargetPos = mHead.Position
-            if Combat.Config.Prediction > 0 then
-                finalTargetPos = finalTargetPos + (mRoot.AssemblyLinearVelocity * (Combat.Config.Prediction / 1000))
-            end
-            
-            FireGunAction(finalTargetPos, myRoot.Position)
-            
-            -- Задержка перед возвратом, чтобы сервер точно обработал урон
-            task.wait(0.15)
-            
-            -- 3. Возврат на исходную позицию
-            if char and myRoot then
-                myRoot.CFrame = savedPos
-            end
-            
-            task.delay(1, function()
-                tpKillCooldown = false
-            end)
-        end
-    end
-end
-
--- ================== Input Connections ==================
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-
-    if input.KeyCode == Combat.Config.ShootKey then
-        if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
-            ExecuteHackerShot()
-        else
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local target = GetAimTarget()
-            local targetPos = target and target.Position or (Camera.CFrame.Position + Camera.CFrame.LookVector * 100)
-            FireGunAction(targetPos, root and root.Position or Vector3.new())
-        end
-    elseif input.KeyCode == Combat.Config.PickupKey then
-        local map = getMap()
-        local gunDrop = map and map:FindFirstChild("GunDrop")
-        if gunDrop then
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local targetPart = GetBasePart(gunDrop)
-            if root and targetPart then
-                local savedPos = root.CFrame
-                root.CFrame = targetPart.CFrame + Vector3.new(0, 1.5, 0)
-                task.wait(0.05)
-                if firetouchinterest then
-                    firetouchinterest(root, targetPart, 0)
-                    firetouchinterest(root, targetPart, 1)
-                end
-                task.wait(0.1)
-                if char:FindFirstChild("HumanoidRootPart") then
-                    root.CFrame = savedPos
-                end
-            end
-        end
-    elseif input.KeyCode == Combat.Config.FindSheriffKey then
-        local sheriff = FindSheriff()
-        if sheriff then
-            local userId = Players:GetUserIdFromNameAsync(sheriff.Name)
-            StarterGui:SetCore("SendNotification", {
-                Title = "Sheriff",
-                Text = "Their name is " .. sheriff.Name .. "!",
-                Icon = "https://web.roblox.com/Thumbs/Avatar.ashx?x=100&y=100&Format=Png&userid=" .. userId,
-                Duration = 5,
-                Button1 = "Dismiss",
-            })
-        else
-            StarterGui:SetCore("SendNotification", {
-                Title = "Sheriff",
-                Text = "No sheriff could be found!",
-                Duration = 5,
-                Button1 = "Dismiss",
-            })
-        end
-    elseif input.KeyCode == Combat.Config.FindMurdererKey then
-        local murderer = FindMurderer()
-        if murderer then
-            local userId = Players:GetUserIdFromNameAsync(murderer.Name)
-            StarterGui:SetCore("SendNotification", {
-                Title = "Murderer",
-                Text = "Their name is " .. murderer.Name .. "!",
-                Icon = "https://web.roblox.com/Thumbs/Avatar.ashx?x=100&y=100&Format=Png&userid=" .. userId,
-                Duration = 5,
-                Button1 = "Dismiss",
-            })
-        else
-            StarterGui:SetCore("SendNotification", {
-                Title = "Murderer",
-                Text = "No murderer could be found!",
-                Duration = 5,
-                Button1 = "Dismiss",
-            })
-        end
-    end
-end)
-
--- ================== Main Render Loop ==================
-RunService.RenderStepped:Connect(function()
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not char or not hum or hum.Health <= 0 then
-        FOVFrame.Visible = false
-        return
-    end
-
-    -- Обновление FOV GUI
-    FOVFrame.Size = UDim2.new(0, Combat.Config.FOV * 2, 0, Combat.Config.FOV * 2)
-    FOVStroke.Transparency = Combat.Config.FOVTransparency
-    FOVFrame.Visible = Combat.Config.AimEnabled
-
-    if Camera.CameraType == Enum.CameraType.Scriptable and Combat.Config.AimMode ~= "Static" and Combat.Config.AimMode ~= "Hacker" then
-        Camera.CameraType = Enum.CameraType.Custom
-    end
-
-    -- ================= АИМБОТ =================
-    if Combat.Config.AimEnabled then
-        if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
-            if Combat.Config.AutoShot then
-                ExecuteHackerShot()
+        elseif input.KeyCode == Combat.Config.FindSheriffKey then
+            local sheriff = FindSheriff()
+            if sheriff then
+                local userId = Players:GetUserIdFromNameAsync(sheriff.Name)
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Sheriff",
+                    Text = "Their name is " .. sheriff.Name .. "!",
+                    Icon = "https://web.roblox.com/Thumbs/Avatar.ashx?x=100&y=100&Format=Png&userid=" .. userId,
+                    Duration = 5,
+                    Button1 = "Dismiss",
+                })
             else
-                local murderer = FindMurderer()
-                if murderer and murderer.Character then
-                    local mHead = murderer.Character:FindFirstChild("Head") or murderer.Character:FindFirstChild("HumanoidRootPart")
-                    if mHead then
-                        local targetPos = mHead.Position
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Sheriff",
+                    Text = "No sheriff could be found!",
+                    Duration = 5,
+                    Button1 = "Dismiss",
+                })
+            end
+        elseif input.KeyCode == Combat.Config.FindMurdererKey then
+            local murderer = FindMurderer()
+            if murderer then
+                local userId = Players:GetUserIdFromNameAsync(murderer.Name)
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Murderer",
+                    Text = "Their name is " .. murderer.Name .. "!",
+                    Icon = "https://web.roblox.com/Thumbs/Avatar.ashx?x=100&y=100&Format=Png&userid=" .. userId,
+                    Duration = 5,
+                    Button1 = "Dismiss",
+                })
+            else
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Murderer",
+                    Text = "No murderer could be found!",
+                    Duration = 5,
+                    Button1 = "Dismiss",
+                })
+            end
+        end
+    end)
+
+    while task.wait(0.03) do
+        pcall(function()
+            local char = LocalPlayer.Character
+            if not char or char:FindFirstChildOfClass("Humanoid").Health <= 0 then
+                FOVFrame.Visible = false
+                return
+            end
+
+            FOVFrame.Size = UDim2.new(0, Combat.Config.FOV * 2, 0, Combat.Config.FOV * 2)
+            FOVStroke.Transparency = Combat.Config.FOVTransparency
+            FOVFrame.Visible = Combat.Config.AimEnabled
+
+            if Camera.CameraType == Enum.CameraType.Scriptable then
+                Camera.CameraType = Enum.CameraType.Custom
+            end
+
+            -- ================= АИМБОТ =================
+            if Combat.Config.AimEnabled then
+                if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
+                    local murderer = FindMurderer()
+                    if murderer and murderer.Character then
                         local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
-                        if Combat.Config.Prediction > 0 and mRoot then
-                            targetPos = targetPos + (mRoot.AssemblyLinearVelocity * (Combat.Config.Prediction / 1000))
+                        local mHead = murderer.Character:FindFirstChild("Head") or mRoot
+                        if mRoot then
+                            -- 1. Позиция за спиной
+                            local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * Combat.Config.HackerDistance)
+                            char:PivotTo(CFrame.new(behindPos, mRoot.Position))
+
+                            -- 2. Камера на цель
+                            local targetPos = mHead.Position
+                            if Combat.Config.Prediction > 0 then
+                                targetPos += mRoot.Velocity * (Combat.Config.Prediction / 1000)
+                            end
+                            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+
+                            -- 3. Выстрел
+                            if Combat.Config.AutoShot then
+                                if Combat.Config.AutoEquipGun then
+                                    local tool = char:FindFirstChildOfClass("Tool")
+                                    if not tool or tool.Name ~= "Gun" then
+                                        local backpack = LocalPlayer:FindFirstChild("Backpack")
+                                        local gun = backpack and backpack:FindFirstChild("Gun")
+                                        if gun then char:FindFirstChildOfClass("Humanoid"):EquipTool(gun) end
+                                    end
+                                end
+                                local remote = getShootRemote()
+                                if remote then
+                                    remote:FireServer(targetPos)
+                                else
+                                    SimulateClick()
+                                end
+                            end
                         end
-                        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+                    end
+                else
+                    -- Стандартные режимы
+                    local target = GetAimTarget()
+                    local targetPos = target and target.Position
+                    if targetPos and Combat.Config.Prediction > 0 then
+                        local root = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
+                        if root then targetPos += root.Velocity * (Combat.Config.Prediction / 1000) end
+                    end
+                    if targetPos then
+                        if Combat.Config.AimMode == "Static" then
+                            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+                        elseif Combat.Config.AimMode == "Smooth" or Combat.Config.AimMode == "Dynamic" then
+                            SmoothAim(targetPos)
+                        end
+                    end
+                    if Combat.Config.AutoShot and targetPos then
+                        local tool = char:FindFirstChildOfClass("Tool")
+                        if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
+                            local remote = getShootRemote()
+                            if remote then
+                                remote:FireServer(targetPos)
+                            else
+                                SimulateClick()
+                            end
+                        end
                     end
                 end
             end
-        else
-            local target = GetAimTarget()
-            local targetPos = target and target.Position
-            if targetPos and Combat.Config.Prediction > 0 then
-                local root = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
-                if root then
-                    targetPos = targetPos + (root.AssemblyLinearVelocity * (Combat.Config.Prediction / 1000))
+
+            -- Триггер-бот
+            if Combat.Config.TriggerBot then
+                local mousePos = UserInputService:GetMouseLocation()
+                local ray = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+                local params = RaycastParams.new()
+                params.FilterType = Enum.RaycastFilterType.Blacklist
+                params.FilterDescendantsInstances = {char}
+                local result = Workspace:Raycast(ray.Origin, ray.Direction * 500, params)
+                if result and result.Instance then
+                    local hitPlayer = Players:GetPlayerFromCharacter(result.Instance.Parent)
+                    if hitPlayer and hitPlayer ~= LocalPlayer and IsThreat(hitPlayer) then
+                        SimulateClick()
+                    end
                 end
             end
 
-            if targetPos then
-                if Combat.Config.AimMode == "Static" then
-                    Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-                elseif Combat.Config.AimMode == "Smooth" or Combat.Config.AimMode == "Dynamic" then
-                    SmoothAim(targetPos)
+            -- Авто-экипировка (не Hacker)
+            if Combat.Config.AutoEquipGun and Combat.Config.AimMode ~= "Hacker" then
+                local currentTool = char:FindFirstChildOfClass("Tool")
+                if not currentTool or currentTool.Name ~= "Gun" then
+                    local backpack = LocalPlayer:FindFirstChild("Backpack")
+                    local gun = backpack and backpack:FindFirstChild("Gun")
+                    if gun then char:FindFirstChildOfClass("Humanoid"):EquipTool(gun) end
                 end
             end
 
-            -- Исправленный автовыстрел
-            if Combat.Config.AutoShot and targetPos then
+            -- One Tap Knife
+            if Combat.Config.OneTapKnife then
+                local knife = char:FindFirstChild("Knife") or (LocalPlayer.Backpack and LocalPlayer.Backpack:FindFirstChild("Knife"))
+                if knife and knife:IsA("Tool") then knife.GripPos = Vector3.new(0, 0, 0) end
+            end
+
+            -- No Recoil
+            if Combat.Config.NoRecoil then
                 local tool = char:FindFirstChildOfClass("Tool")
-                if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-                    local root = char:FindFirstChild("HumanoidRootPart")
-                    FireGunAction(targetPos, root and root.Position or Vector3.new())
+                if tool and tool:FindFirstChild("Gun") then Camera.CFrame = Camera.CFrame end
+            end
+
+            -- Anti-Aim
+            if Combat.Config.AntiAim then
+                if char:FindFirstChild("Humanoid") then char.Humanoid.AutoRotate = false end
+                local rootPart = char:FindFirstChild("HumanoidRootPart")
+                if rootPart then rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(15), 0) end
+            else
+                if char:FindFirstChild("Humanoid") then char.Humanoid.AutoRotate = true end
+            end
+
+            -- Fake Lag
+            if Combat.Config.FakeLag then
+                local rootPart = char:FindFirstChild("HumanoidRootPart")
+                if rootPart then
+                    rootPart.Anchored = true
+                    task.wait(0.05)
+                    rootPart.Anchored = false
                 end
             end
-        end
-    end
-
-    -- Триггер-бот
-    if Combat.Config.TriggerBot then
-        local mousePos = UserInputService:GetMouseLocation()
-        local ray = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = {char}
-        local result = Workspace:Raycast(ray.Origin, ray.Direction * 500, params)
-        if result and result.Instance then
-            local hitPlayer = Players:GetPlayerFromCharacter(result.Instance.Parent) or Players:GetPlayerFromCharacter(result.Instance.Parent.Parent)
-            if hitPlayer and hitPlayer ~= LocalPlayer and IsThreat(hitPlayer) then
-                local root = char:FindFirstChild("HumanoidRootPart")
-                FireGunAction(result.Position, root and root.Position or Vector3.new())
-            end
-        end
-    end
-
-    -- Авто-экипировка (для остальных режимов)
-    if Combat.Config.AutoEquipGun and Combat.Config.AimMode ~= "Hacker" then
-        local currentTool = char:FindFirstChildOfClass("Tool")
-        if not currentTool or currentTool.Name ~= "Gun" then
-            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack") or LocalPlayer:FindFirstChild("Backpack")
-            local gun = backpack and backpack:FindFirstChild("Gun")
-            if gun and hum then
-                hum:EquipTool(gun)
-            end
-        end
-    end
-
-    -- One Tap Knife
-    if Combat.Config.OneTapKnife then
-        local knife = char:FindFirstChild("Knife") or (LocalPlayer:FindFirstChild("Backpack") and LocalPlayer.Backpack:FindFirstChild("Knife"))
-        if knife and knife:IsA("Tool") then
-            knife.GripPos = Vector3.new(0, 0, 0)
-        end
-    end
-
-    -- Anti-Aim
-    if Combat.Config.AntiAim then
-        if hum then hum.AutoRotate = false end
-        local rootPart = char:FindFirstChild("HumanoidRootPart")
-        if rootPart then
-            rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(15), 0)
-        end
-    else
-        if hum then hum.AutoRotate = true end
-    end
-
-    -- Fake Lag
-    if Combat.Config.FakeLag then
-        local rootPart = char:FindFirstChild("HumanoidRootPart")
-        if rootPart then
-            rootPart.Anchored = true
-            task.delay(0.03, function()
-                if rootPart then rootPart.Anchored = false end
-            end)
-        end
+        end)
     end
 end)
 
@@ -579,6 +447,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
             Smooth = "Сглаживание",
             FOV = "Радиус FOV",
             FOVTrans = "Прозрачность FOV",
+            HackerDist = "Дистанция Hacker",
             Trigger = "Триггер-бот",
 
             SecKeys = "Горячие клавиши",
@@ -593,7 +462,6 @@ function Combat.Init(GlobalConfig, UI, Lang)
             InstantPickup = "Мгновенный подбор",
             AutoNotifyPickup = "Уведомление о пистолете",
             OneTap = "One Tap Knife",
-            HackerDist = "Дистанция ТП (Hacker)",
 
             SecMisc = "Прочее",
             NoRecoil = "Без отдачи",
@@ -609,6 +477,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
             Smooth = "Smoothness",
             FOV = "FOV Radius",
             FOVTrans = "FOV Transparency",
+            HackerDist = "Hacker Distance",
             Trigger = "Triggerbot",
 
             SecKeys = "Keybinds",
@@ -623,7 +492,6 @@ function Combat.Init(GlobalConfig, UI, Lang)
             InstantPickup = "Instant Pickup",
             AutoNotifyPickup = "Notify gun drop",
             OneTap = "One Tap Knife",
-            HackerDist = "Hacker TP Distance",
 
             SecMisc = "Misc",
             NoRecoil = "No Recoil",
@@ -655,27 +523,21 @@ function Combat.Init(GlobalConfig, UI, Lang)
     tab:AddSection(text.SecKeys)
 
     local function addBindLabelAndButton(keyName, configKeyRef)
-        local currentKey = Combat.Config[configKeyRef]
-        local keyString = tostring(currentKey):gsub("Enum.KeyCode.", "")
-        local label = tab:AddLabel(keyName .. " : " .. keyString)
-
+        local label = tab:AddLabel(keyName .. " : " .. tostring(configKeyRef):gsub("Enum.KeyCode.", ""))
         tab:AddButton(keyName .. " (нажмите для смены)", function()
-            local oldKey = Combat.Config[configKeyRef]
+            local oldKey = configKeyRef
             label.Text = keyName .. " : ... (ожидание)"
             local conn
             conn = UserInputService.InputBegan:Connect(function(input, gp)
-                if gp or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                if gp then return end
                 conn:Disconnect()
                 Combat.Config[configKeyRef] = input.KeyCode
                 label.Text = keyName .. " : " .. tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
             end)
-            
-            task.delay(3, function()
-                if Combat.Config[configKeyRef] == oldKey and conn.Connected then
-                    conn:Disconnect()
-                    label.Text = keyName .. " : " .. tostring(oldKey):gsub("Enum.KeyCode.", "")
-                end
-            end)
+            task.wait(3)
+            if Combat.Config[configKeyRef] == oldKey then
+                label.Text = keyName .. " : " .. tostring(oldKey):gsub("Enum.KeyCode.", "")
+            end
         end)
     end
 
@@ -688,7 +550,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
     tab:AddSection(text.SecAuto)
     tab:AddToggle({ Title = text.AutoEquip, Default = false, Callback = function(s) Combat.Config.AutoEquipGun = s end })
     tab:AddToggle({ Title = text.AutoShot, Default = false, Callback = function(s) Combat.Config.AutoShot = s end })
-    tab:AddToggle({ Title = text.InstantPickup, Default = false, Callback = function(s) Combat.Config.InstantGunPkg = s end })
+    tab:AddToggle({ Title = text.InstantPickup, Default = false, Callback = function(s) Combat.Config.InstantGunPickup = s end })
     tab:AddToggle({ Title = text.AutoNotifyPickup, Default = true, Callback = function(s) Combat.Config.AutoNotifyPickup = s end })
     tab:AddToggle({ Title = text.OneTap, Default = false, Callback = function(s) Combat.Config.OneTapKnife = s end })
 
