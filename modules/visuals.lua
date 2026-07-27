@@ -1,4 +1,4 @@
--- [[ MM2 VISUALS MODULE – Enhanced GunESP with Events ]] --
+-- [[ MM2 VISUALS MODULE – Working GunESP with AlwaysOnTop Highlight ]] --
 local Visuals = {}
 
 local Players = game:GetService("Players")
@@ -6,7 +6,6 @@ local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
 
 Visuals.Config = {
     -- ESP & Игроки
@@ -19,28 +18,30 @@ Visuals.Config = {
     Tracers = false,
     ESP_Transparency = 0.5,
     ESP_TextSize = 14,
-    
+
     -- Предметы
     GunESP = false,
     CoinESP = false,
-    
+
     -- HUD и Окружение
     NightMode = false,
     Fullbright = false,
     Crosshair = false,
     Watermark = true,
     AliveCounter = false,
-    Radar = false
 }
 
--- Создаем интерфейс для HUD
+-- Внутренние переменные для GunESP
+local currentGunHighlight = nil
+local currentGunBillboard = nil
+
+-- ====================== HUD ======================
 local HUDGui = Instance.new("ScreenGui")
 HUDGui.Name = "PurpleFox_HUD"
 HUDGui.ResetOnSpawn = false
 pcall(function() HUDGui.Parent = CoreGui end)
 if not HUDGui.Parent then HUDGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
--- 1. Watermark
 local Watermark = Instance.new("TextLabel", HUDGui)
 Watermark.Size = UDim2.new(0, 180, 0, 28)
 Watermark.Position = UDim2.new(0, 10, 0, 10)
@@ -53,26 +54,22 @@ Watermark.Text = " 🦊 PURPLE FOX | MM2 "
 Watermark.Visible = false
 Instance.new("UICorner", Watermark).CornerRadius = UDim.new(0, 4)
 
--- 2. Crosshair (Прицел)
 local Crosshair = Instance.new("Frame", HUDGui)
 Crosshair.Size = UDim2.new(0, 30, 0, 30)
 Crosshair.Position = UDim2.new(0.5, -15, 0.5, -15)
 Crosshair.BackgroundTransparency = 1
 Crosshair.Visible = false
-
 local CH_V = Instance.new("Frame", Crosshair)
 CH_V.Size = UDim2.new(0, 2, 0, 12)
 CH_V.Position = UDim2.new(0.5, -1, 0.5, -6)
 CH_V.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
 CH_V.BorderSizePixel = 0
-
 local CH_H = Instance.new("Frame", Crosshair)
 CH_H.Size = UDim2.new(0, 12, 0, 2)
 CH_H.Position = UDim2.new(0.5, -6, 0.5, -1)
 CH_H.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
 CH_H.BorderSizePixel = 0
 
--- 3. Alive Counter (Счетчик живых)
 local AliveFrame = Instance.new("TextLabel", HUDGui)
 AliveFrame.Size = UDim2.new(0, 150, 0, 28)
 AliveFrame.Position = UDim2.new(0.5, -75, 0, 10)
@@ -84,12 +81,11 @@ AliveFrame.TextSize = 14
 AliveFrame.Visible = false
 Instance.new("UICorner", AliveFrame).CornerRadius = UDim.new(0, 4)
 
--- Определение роли
+-- ====================== Роли ======================
 local function GetRole(player)
     if not player or not player.Character then return "Innocent" end
     local backpack = player:FindFirstChild("Backpack")
     local char = player.Character
-
     if (backpack and backpack:FindFirstChild("Knife")) or char:FindFirstChild("Knife") then return "Murderer" end
     if (backpack and backpack:FindFirstChild("Gun")) or char:FindFirstChild("Gun") then return "Sheriff" end
     return "Innocent"
@@ -103,9 +99,6 @@ local function GetColor(role)
 end
 
 -- ====================== GUN ESP (улучшенный) ======================
-local currentGunHighlight = nil
-local currentGunBillboard = nil
-
 local function removeGunESP()
     if currentGunHighlight then currentGunHighlight:Destroy(); currentGunHighlight = nil end
     if currentGunBillboard then currentGunBillboard:Destroy(); currentGunBillboard = nil end
@@ -116,60 +109,62 @@ local function applyGunESP()
     if not Visuals.Config.GunESP then return end
 
     local gunDrop = Workspace:FindFirstChild("GunDrop")
-    if gunDrop and gunDrop:IsA("Model") then
-        -- Золотая подсветка оружия
-        currentGunHighlight = Instance.new("Highlight")
-        currentGunHighlight.Name = "PF_GunHighlight"
-        currentGunHighlight.FillColor = Color3.fromRGB(255, 215, 0)
-        currentGunHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-        currentGunHighlight.FillTransparency = 0.2
-        currentGunHighlight.OutlineTransparency = 0
-        currentGunHighlight.Parent = gunDrop
+    if not gunDrop then return end
 
-        -- Текстовый маркер над пистолетом
-        currentGunBillboard = Instance.new("BillboardGui")
-        currentGunBillboard.Name = "PF_GunText"
-        currentGunBillboard.Adornee = gunDrop
-        currentGunBillboard.Size = UDim2.new(0, 120, 0, 30)
-        currentGunBillboard.StudsOffset = Vector3.new(0, 2.5, 0)
-        currentGunBillboard.AlwaysOnTop = true
+    -- Ищем деталь для позиционирования (любой BasePart)
+    local handle = gunDrop:IsA("BasePart") and gunDrop
+        or gunDrop:FindFirstChild("Handle")
+        or gunDrop:FindFirstChildWhichIsA("BasePart", true)
 
-        local label = Instance.new("TextLabel", currentGunBillboard)
+    -- 1. Highlight (сквозь стены)
+    local hl = Instance.new("Highlight")
+    hl.Name = "PF_GunHighlight"
+    hl.FillColor = Color3.fromRGB(255, 215, 0)
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.FillTransparency = 0.25
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop   -- видно сквозь стены
+    hl.Adornee = gunDrop
+    hl.Parent = gunDrop
+    currentGunHighlight = hl
+
+    -- 2. BillboardGui на экране (или на детали)
+    if handle then
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "PF_GunText"
+        bb.Adornee = handle
+        bb.Size = UDim2.new(0, 150, 0, 40)
+        bb.StudsOffset = Vector3.new(0, 2.5, 0)
+        bb.AlwaysOnTop = true
+
+        local label = Instance.new("TextLabel", bb)
         label.Size = UDim2.new(1, 0, 1, 0)
         label.BackgroundTransparency = 1
         label.Text = "🔫 GUN HERE"
         label.TextColor3 = Color3.fromRGB(255, 215, 0)
         label.Font = Enum.Font.GothamBlack
-        label.TextSize = 16
+        label.TextSize = 18
         label.TextStrokeTransparency = 0
+        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 
-        currentGunBillboard.Parent = gunDrop
+        -- Пытаемся закрепить в CoreGui (чтобы не зависело от размера детали), иначе на самой детали
+        pcall(function() bb.Parent = CoreGui end)
+        if not bb.Parent then
+            bb.Parent = handle
+        end
+        currentGunBillboard = bb
     end
 end
-
--- События появления/исчезновения GunDrop
-Workspace.ChildAdded:Connect(function(child)
-    if child.Name == "GunDrop" and Visuals.Config.GunESP then
-        task.wait(0.1)
-        applyGunESP()
-    end
-end)
-
-Workspace.ChildRemoved:Connect(function(child)
-    if child.Name == "GunDrop" then
-        removeGunESP()
-    end
-end)
 
 -- ====================== ГЛАВНЫЙ ЦИКЛ ======================
 task.spawn(function()
     while task.wait(0.1) do
         pcall(function()
-            -- Обновление HUD
+            -- HUD
             Watermark.Visible = Visuals.Config.Watermark
             Crosshair.Visible = Visuals.Config.Crosshair
             AliveFrame.Visible = Visuals.Config.AliveCounter
-            
+
             if Visuals.Config.NightMode then
                 Lighting.ClockTime = 0
             elseif Visuals.Config.Fullbright then
@@ -179,7 +174,7 @@ task.spawn(function()
 
             local aliveCount = 0
 
-            -- Цикл игроков
+            -- ESP игроков
             for _, player in pairs(Players:GetPlayers()) do
                 if player ~= LocalPlayer then
                     local char = player.Character
@@ -191,7 +186,7 @@ task.spawn(function()
                         local role = GetRole(player)
                         local color = Visuals.Config.RoleColors and GetColor(role) or Color3.fromRGB(160, 32, 240)
 
-                        -- 1. ESP TAG & Health Bar
+                        -- 1. BillboardGui с именем и ролью
                         local bb = head:FindFirstChild("PF_Tag")
                         if Visuals.Config.ESP_Enabled then
                             if not bb then
@@ -242,7 +237,7 @@ task.spawn(function()
                             if bb then bb:Destroy() end
                         end
 
-                        -- 2. Highlight (Подсветка)
+                        -- 2. Highlight персонажа
                         local hl = char:FindFirstChild("PF_Highlight")
                         if Visuals.Config.ESP_Enabled then
                             if not hl then
@@ -257,7 +252,7 @@ task.spawn(function()
                             if hl then hl:Destroy() end
                         end
 
-                        -- 3. Tracers (Линии от игрока)
+                        -- 3. Tracers
                         local myChar = LocalPlayer.Character
                         if myChar and myChar:FindFirstChild("HumanoidRootPart") then
                             local myRoot = myChar.HumanoidRootPart
@@ -285,19 +280,26 @@ task.spawn(function()
                     end
                 end
             end
-            
+
             if Visuals.Config.AliveCounter then
                 AliveFrame.Text = "🔪 Живых игроков: " .. aliveCount
             end
 
-            -- Gun ESP теперь управляется событиями, здесь только проверка на случай, если объект уже есть, а тоггл только что включили (на всякий случай)
-            if Visuals.Config.GunESP and not currentGunHighlight then
-                applyGunESP()
+            -- GunESP проверка каждые 0.5 сек (делаем отдельно, чтобы не нагружать)
+            if Visuals.Config.GunESP then
+                local gunDrop = Workspace:FindFirstChild("GunDrop")
+                if gunDrop and not currentGunHighlight then
+                    task.wait(0.2)  -- дадим игре прогрузить модель
+                    applyGunESP()
+                elseif not gunDrop and currentGunHighlight then
+                    removeGunESP()
+                end
             end
         end)
     end
 end)
 
+-- ====================== Инициализация UI ======================
 function Visuals.Init(GlobalConfig, UI, Lang)
     local T = {
         RU = {
@@ -361,7 +363,6 @@ function Visuals.Init(GlobalConfig, UI, Lang)
     VisTab:AddToggle({ Title = text.Health, Default = Visuals.Config.HealthBar, Callback = function(s) Visuals.Config.HealthBar = s end })
     VisTab:AddToggle({ Title = text.Distance, Default = Visuals.Config.Distance, Callback = function(s) Visuals.Config.Distance = s end })
     VisTab:AddToggle({ Title = text.Tracers, Default = Visuals.Config.Tracers, Callback = function(s) Visuals.Config.Tracers = s end })
-    
     VisTab:AddNumberInput({ Title = text.Transp, Min = 0, Max = 1, Default = Visuals.Config.ESP_Transparency, Callback = function(v) Visuals.Config.ESP_Transparency = v end })
     VisTab:AddNumberInput({ Title = text.TextSize, Min = 10, Max = 24, Default = Visuals.Config.ESP_TextSize, Callback = function(v) Visuals.Config.ESP_TextSize = v end })
 
