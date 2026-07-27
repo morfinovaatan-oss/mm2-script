@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Hacker Mode Stable + InstantGunPickup Fix ]] --
+-- [[ MM2 COMBAT MODULE – Ultimate Chain: Instant Pickup → Hacker Mode ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -63,7 +63,7 @@ local bodyVelocity = nil
 local hackerActive = false
 local lastShotTime = 0
 local SHOT_COOLDOWN = 0.5
-local pickedUpThisRound = false   -- флаг однократного подбора
+local pickedUpThisRound = false   -- флаг однократного подбора за раунд
 
 -- ================== Helpers ==================
 local function SimulateClick()
@@ -160,7 +160,7 @@ local function getMap()
     return nil
 end
 
--- ================== Мгновенный подбор пистолета (однократный за раунд) ==================
+-- ================== Мгновенный подбор пистолета ==================
 local function performInstantPickup(gunDrop)
     if not gunDrop then return end
     local char = LocalPlayer.Character
@@ -168,30 +168,51 @@ local function performInstantPickup(gunDrop)
     local root = char.HumanoidRootPart
     local savedPos = root.CFrame
 
+    -- Мгновенный телепорт к пистолету
     root.CFrame = gunDrop:GetPivot() + Vector3.new(0, 1.5, 0)
-    task.wait(0.05)
+    task.wait(0.02)
     firetouchinterest(root, gunDrop, 0)
     firetouchinterest(root, gunDrop, 1)
-    task.wait(0.15)  -- увеличенная задержка для восстановления фокуса ввода
+    task.wait(0.05)
 
+    -- Возвращаемся на исходную позицию (чтобы Hacker Mode сам телепортировал за спину мёрдеру)
     if char and char:FindFirstChild("HumanoidRootPart") then
         root.CFrame = savedPos
     end
+    
     pickedUpThisRound = true
 end
 
--- Проверка на появление GunDrop (только если включен InstantGunPickup и ещё не подбирали в этом раунде)
-local function checkGunDrop()
-    if not Combat.Config.InstantGunPickup or pickedUpThisRound then return end
-    local map = getMap()
-    if not map then return end
-    local gunDrop = map:FindFirstChild("GunDrop")
-    if gunDrop then
-        performInstantPickup(gunDrop)
+-- Уведомление о появлении пистолета (без подбора)
+local function notifyGunDrop(gunDrop)
+    if not Combat.Config.AutoNotifyPickup then return end
+    local cb = Instance.new("BindableFunction")
+    cb.OnInvoke = function(arg)
+        if arg == "Get gun!" and gunDrop.Parent then
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("Head") then
+                gunDrop.CFrame = CFrame.new(char.Head.Position)
+            end
+        end
     end
+    StarterGui:SetCore("SendNotification", {
+        Title = "The sheriff has died!",
+        Text = "Grab their gun?",
+        Duration = 5,
+        Button1 = "Dismiss",
+        Button2 = "Get gun!",
+        Callback = cb
+    })
 end
 
--- Сброс флага при возрождении (новый раунд)
+-- Слушаем появление GunDrop в любом месте Workspace (только для уведомления)
+workspace.DescendantAdded:Connect(function(descendant)
+    if descendant.Name == "GunDrop" then
+        notifyGunDrop(descendant)
+    end
+end)
+
+-- Сброс флага подбора при возрождении (начало нового раунда)
 LocalPlayer.CharacterAdded:Connect(function()
     pickedUpThisRound = false
 end)
@@ -214,7 +235,7 @@ local function disableAntiGravity()
     end
 end
 
--- ================== Единый Heartbeat ==================
+-- ================== Единый Heartbeat с цепочкой приоритетов ==================
 local heartbeatConnection
 local function startHeartbeat()
     if heartbeatConnection then return end
@@ -234,9 +255,21 @@ local function startHeartbeat()
             FOVStroke.Transparency = Combat.Config.FOVTransparency
             FOVFrame.Visible = Combat.Config.AimEnabled
 
-            -- ================= АИМБОТ =================
+            local hasGun = IsLocalSheriff()
+
+            -- ШАГ 1: Если мы НЕ шериф, включен InstantPickup, и ещё не подбирали — ищем пистолет
+            if Combat.Config.InstantGunPickup and not pickedUpThisRound and not hasGun then
+                local map = getMap()
+                local gunDrop = map and map:FindFirstChild("GunDrop")
+                if gunDrop then
+                    performInstantPickup(gunDrop)
+                    return  -- пропускаем кадр, чтобы завершить подбор
+                end
+            end
+
+            -- ШАГ 2: Аимбот и Hacker Mode (как только появился пистолет, включается режим)
             if Combat.Config.AimEnabled then
-                if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
+                if Combat.Config.AimMode == "Hacker" and hasGun then
                     hackerActive = true
                     local murderer = FindMurderer()
                     if murderer and murderer.Character then
@@ -245,28 +278,26 @@ local function startHeartbeat()
                         if mRoot and mHead then
                             enableAntiGravity()
 
-                            -- Телепорт за спину
+                            -- Телепорт за спину мёрдеру
                             local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * Combat.Config.HackerDistance)
                             behindPos = behindPos + Vector3.new(0, 2.5, 0)
                             char:PivotTo(CFrame.new(behindPos, mRoot.Position))
 
-                            -- Обнуляем скорость
+                            -- Гасим инерцию
                             local rootPart = char.HumanoidRootPart
                             if rootPart then
                                 rootPart.Velocity = Vector3.new(0, 0, 0)
                                 rootPart.RotVelocity = Vector3.new(0, 0, 0)
                             end
 
-                            -- Цель с предикшеном
+                            -- Предикшн и наводка камеры
                             local targetPos = mHead.Position
                             if Combat.Config.Prediction > 0 then
                                 targetPos += mRoot.Velocity * (Combat.Config.Prediction / 1000)
                             end
-
-                            -- ФИКСАЦИЯ КАМЕРЫ
                             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
 
-                            -- Экипировка (однократно)
+                            -- Авто-экипировка ствола
                             local tool = char:FindFirstChildOfClass("Tool")
                             if not tool or tool.Name ~= "Gun" then
                                 if Combat.Config.AutoEquipGun then
@@ -278,7 +309,7 @@ local function startHeartbeat()
                                 end
                             end
 
-                            -- Авто-выстрел через SimulateClick (честный клиентский выстрел)
+                            -- Автовыстрел симуляцией кнопки
                             if Combat.Config.AutoShot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                                 local currentTool = char:FindFirstChildOfClass("Tool")
                                 if currentTool and (currentTool.Name == "Gun" or currentTool:FindFirstChild("Gun")) then
@@ -286,9 +317,6 @@ local function startHeartbeat()
                                     lastShotTime = tick()
                                 end
                             end
-
-                            -- Проверка на подбор пистолета (однократный)
-                            checkGunDrop()
                         end
                     else
                         hackerActive = false
@@ -297,7 +325,7 @@ local function startHeartbeat()
                 else
                     hackerActive = false
                     disableAntiGravity()
-                    -- Стандартные режимы
+                    -- Стандартные режимы (Static, Smooth, Dynamic)
                     local target = GetAimTarget()
                     local targetPos = target and target.Position
                     if targetPos and Combat.Config.Prediction > 0 then
@@ -314,7 +342,6 @@ local function startHeartbeat()
                     if Combat.Config.AutoShot and targetPos and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                         local tool = char:FindFirstChildOfClass("Tool")
                         if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-                            -- В обычных режимах тоже используем SimulateClick для надёжности
                             SimulateClick()
                             lastShotTime = tick()
                         end
@@ -378,14 +405,13 @@ end
 
 startHeartbeat()
 
--- ================== Бинды клавиш (без изменений) ==================
+-- ================== Бинды клавиш ==================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
     if input.KeyCode == Combat.Config.ShootKey then
         SimulateClick()
     elseif input.KeyCode == Combat.Config.PickupKey then
-        -- Ручной подбор (если не сработал автоматический или для удобства)
         local map = getMap()
         local gunDrop = map and map:FindFirstChild("GunDrop")
         if gunDrop then
