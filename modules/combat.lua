@@ -1,28 +1,23 @@
--- [[ MM2 COMBAT MODULE - FULLY FIXED + HACKER MODE ]] --
+-- [[ MM2 COMBAT MODULE – FIXED & POLISHED ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
 Combat.Config = {
-    -- Aimbot
     AimEnabled = false,
-    AimMode = "Dynamic",   -- Static, Dynamic, Smooth
+    AimMode = "Dynamic",   -- Static, Dynamic, Smooth, Hacker
     Prediction = 15,
     SmoothSpeed = 5,
-    SilentAim = false,
 
-    -- FOV
     FOV = 120,
     FOVTransparency = 0.5,
     TriggerBot = false,
 
-    -- Automation
     AutoEquipGun = false,
     AutoShot = false,
     AutoPickGun = false,
@@ -30,15 +25,11 @@ Combat.Config = {
     OneTapKnife = false,
     NoRecoil = false,
 
-    -- Hacker Mode
-    HackerMode = false,    -- teleport behind murderer, lock cam, auto shoot
-
-    -- Misc
     AntiAim = false,
     FakeLag = false,
 }
 
--- ================== FOV Circle GUI ==================
+-- ================== FOV Circle ==================
 local FOVGui = Instance.new("ScreenGui")
 FOVGui.Name = "PurpleFox_FOV"
 FOVGui.ResetOnSpawn = false
@@ -57,7 +48,6 @@ FOVStroke.Color = Color3.fromRGB(160, 32, 240)
 
 -- ================== Helpers ==================
 local function SimulateClick()
-    -- Используем надёжный mouse1click() (работает в MM2)
     pcall(function()
         local mouse = LocalPlayer:GetMouse()
         mouse1click()
@@ -74,7 +64,6 @@ local function IsThreat(player)
     return hasKnife or hasGun
 end
 
--- Проверка, является ли локальный игрок шерифом (есть пистолет)
 local function IsLocalSheriff()
     local char = LocalPlayer.Character
     if not char then return false end
@@ -82,7 +71,6 @@ local function IsLocalSheriff()
     return (char:FindFirstChild("Gun") ~= nil) or (backpack and backpack:FindFirstChild("Gun") ~= nil)
 end
 
--- Получить ближайшего мёрдера (игрок с ножом)
 local function FindMurderer()
     local closest = nil
     local minDist = math.huge
@@ -101,7 +89,6 @@ local function FindMurderer()
     return closest
 end
 
--- Поиск цели для аимбота / хакерского режима
 local function GetAimTarget()
     local mousePos = UserInputService:GetMouseLocation()
     local best = nil
@@ -125,7 +112,6 @@ local function GetAimTarget()
     return best
 end
 
--- Плавное наведение
 local function SmoothAim(targetPos, speed)
     speed = speed or Combat.Config.SmoothSpeed / 10
     local current = Camera.CFrame
@@ -143,64 +129,60 @@ task.spawn(function()
                 return
             end
 
-            -- FOV circle update
+            -- FOV circle
             FOVFrame.Size = UDim2.new(0, Combat.Config.FOV * 2, 0, Combat.Config.FOV * 2)
             FOVStroke.Transparency = Combat.Config.FOVTransparency
-            FOVFrame.Visible = Combat.Config.AimEnabled or Combat.Config.SilentAim
+            FOVFrame.Visible = Combat.Config.AimEnabled
 
-            -- ============== ХАКЕРСКИЙ РЕЖИМ ==============
-            if Combat.Config.HackerMode and IsLocalSheriff() then
-                local murderer = FindMurderer()
-                if murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") then
-                    local mRoot = murderer.Character.HumanoidRootPart
-                    local mHead = murderer.Character:FindFirstChild("Head")
-                    -- Позиция позади мёрдера (на 15 метров от него по направлению, противоположному его взгляду)
-                    local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * 15)
-                    -- Телепорт (без проверки коллизий, можно улучшить)
-                    char.HumanoidRootPart.CFrame = CFrame.new(behindPos, mRoot.Position)  -- смотрим на мёрдера
-                    -- Фиксация камеры на мёрдере
-                    if mHead then
-                        Camera.CFrame = CFrame.new(Camera.CFrame.Position, mHead.Position)
+            -- ============== АИМБОТ (включая Hacker) ==============
+            if Combat.Config.AimEnabled then
+                -- Режим Hacker: только для шерифа
+                if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
+                    local murderer = FindMurderer()
+                    if murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") then
+                        local mRoot = murderer.Character.HumanoidRootPart
+                        local mHead = murderer.Character:FindFirstChild("Head")
+                        -- Телепорт за спину мёрдера (15 метров)
+                        local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * 15)
+                        char:FindFirstChild("HumanoidRootPart").CFrame = CFrame.new(behindPos, mRoot.Position)
+                        -- Камера на голову мёрдера
+                        if mHead then
+                            Camera.CFrame = CFrame.new(Camera.CFrame.Position, mHead.Position)
+                        end
+                        -- Авто‑выстрел (игнорируем AutoShot, в этом режиме всегда стреляем)
+                        local tool = char:FindFirstChildOfClass("Tool")
+                        if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
+                            SimulateClick()
+                        end
                     end
-                    -- Авто‑выстрел
-                    local tool = char:FindFirstChildOfClass("Tool")
-                    if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-                        SimulateClick()
+                else
+                    -- Обычные режимы аимбота
+                    local target = GetAimTarget()
+                    local targetPos = target and target.Position
+
+                    -- Prediction
+                    if targetPos and Combat.Config.Prediction > 0 then
+                        local root = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            targetPos += root.Velocity * (Combat.Config.Prediction / 1000)
+                        end
                     end
-                    -- После обработки пропускаем остальные аимботы, чтобы не мешали
-                    return
-                end
-            end
 
-            -- ============== ОБЫЧНЫЙ АИМБОТ ==============
-            local target = GetAimTarget()
-            local targetPos = target and target.Position
+                    if targetPos then
+                        if Combat.Config.AimMode == "Static" then
+                            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
+                        elseif Combat.Config.AimMode == "Smooth" or Combat.Config.AimMode == "Dynamic" then
+                            SmoothAim(targetPos)
+                        end
+                    end
 
-            -- Prediction
-            if targetPos and Combat.Config.Prediction > 0 then
-                local root = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
-                if root then
-                    targetPos += root.Velocity * (Combat.Config.Prediction / 1000)
-                end
-            end
-
-            if Combat.Config.AimEnabled and targetPos then
-                if Combat.Config.AimMode == "Static" then
-                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
-                elseif Combat.Config.AimMode == "Smooth" or Combat.Config.AimMode == "Dynamic" then
-                    SmoothAim(targetPos)
-                end
-            end
-
-            if Combat.Config.SilentAim and targetPos then
-                Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
-            end
-
-            -- Auto‑Shot (обычный)
-            if Combat.Config.AutoShot and targetPos and (Combat.Config.AimEnabled or Combat.Config.SilentAim) then
-                local tool = char:FindFirstChildOfClass("Tool")
-                if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-                    SimulateClick()
+                    -- Auto‑Shot (обычный)
+                    if Combat.Config.AutoShot and targetPos then
+                        local tool = char:FindFirstChildOfClass("Tool")
+                        if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
+                            SimulateClick()
+                        end
+                    end
                 end
             end
 
@@ -227,27 +209,31 @@ task.spawn(function()
                     local backpack = LocalPlayer:FindFirstChild("Backpack")
                     local gun = backpack and backpack:FindFirstChild("Gun")
                     if gun then
-                        char.Humanoid:EquipTool(gun)
+                        char:FindFirstChildOfClass("Humanoid"):EquipTool(gun)
                     end
                 end
             end
 
-            -- ============== АВТО‑ПОДБОР ПИСТОЛЕТА ==============
+            -- ============== АВТО‑ПОДБОР ПИСТОЛЕТА (ИСПРАВЛЕНО) ==============
             if Combat.Config.AutoPickGun or Combat.Config.InfinitePickup then
                 local root = char:FindFirstChild("HumanoidRootPart")
                 if root then
-                    for _, obj in pairs(Workspace:GetChildren()) do
-                        if obj.Name == "GunDrop" and obj:IsA("Model") then
-                            local tool = obj:FindFirstChildOfClass("Tool")
+                    -- Ищем все модели GunDrop в Workspace (и вложенные)
+                    for _, drop in pairs(Workspace:GetDescendants()) do
+                        if drop.Name == "GunDrop" and drop:IsA("Model") then
+                            local tool = drop:FindFirstChildOfClass("Tool")
                             if tool and tool:IsA("Tool") and (tool.Name == "Gun" or tool.Name:lower():find("gun")) then
                                 local handle = tool:FindFirstChild("Handle")
                                 if handle and handle:IsA("BasePart") then
                                     local dist = (handle.Position - root.Position).Magnitude
                                     if dist < 15 or Combat.Config.InfinitePickup then
-                                        -- Надёжный подбор: телепортируем Handle в позицию игрока
+                                        -- Перемещаем Handle прямо к игроку
                                         handle.CFrame = root.CFrame + Vector3.new(0, 2, 0)
-                                        task.wait(0.05)  -- даём игре зарегистрировать касание
-                                        break
+                                        task.wait(0.02)  -- даём игре обработать касание
+                                        -- Явно вызываем касание (двойной firetouchinterest)
+                                        firetouchinterest(root, handle, 0)
+                                        firetouchinterest(root, handle, 1)
+                                        break  -- подбираем один пистолет за цикл
                                     end
                                 end
                             end
@@ -268,17 +254,16 @@ task.spawn(function()
             if Combat.Config.NoRecoil then
                 local tool = char:FindFirstChildOfClass("Tool")
                 if tool and tool:FindFirstChild("Gun") then
-                    -- базовая компенсация отдачи
-                    Camera.CFrame = Camera.CFrame
+                    Camera.CFrame = Camera.CFrame  -- базовая компенсация
                 end
             end
 
             -- ============== ANTI‑AIM ==============
             if Combat.Config.AntiAim then
                 if char:FindFirstChild("Humanoid") then char.Humanoid.AutoRotate = false end
-                local root = char:FindFirstChild("HumanoidRootPart")
-                if root then
-                    root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(15), 0)
+                local rootPart = char:FindFirstChild("HumanoidRootPart")
+                if rootPart then
+                    rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(15), 0)
                 end
             else
                 if char:FindFirstChild("Humanoid") then char.Humanoid.AutoRotate = true end
@@ -286,11 +271,11 @@ task.spawn(function()
 
             -- ============== FAKE LAG ==============
             if Combat.Config.FakeLag then
-                local root = char:FindFirstChild("HumanoidRootPart")
-                if root then
-                    root.Anchored = true
+                local rootPart = char:FindFirstChild("HumanoidRootPart")
+                if rootPart then
+                    rootPart.Anchored = true
                     task.wait(0.05)
-                    root.Anchored = false
+                    rootPart.Anchored = false
                 end
             end
         end)
@@ -304,23 +289,18 @@ function Combat.Init(GlobalConfig, UI, Lang)
             Tab = "⚔️ Комбат",
             SecAim = "Аимбот",
             AimEnable = "1. Аимбот",
-            AimMode = "Режим",
+            AimMode = "Режим аимбота",
             Pred = "Упреждение",
             Smooth = "Сглаживание",
-            Silent = "Silent Aim",
             FOV = "Радиус FOV",
             FOVTrans = "Прозрачность",
             Trigger = "Триггер-бот",
 
-            SecHacker = "Хакерский режим (Шериф)",
-            HackerToggle = "Хакер-мод",
-            HackerDesc = "Телепорт за спину мёрдера, фиксация, авто-огонь",
-
             SecAuto = "Автоматизация",
             AutoEquip = "Авто-экипировка",
             AutoShot = "Авто-выстрел",
-            AutoPick = "Авто-подбор",
-            InfPickup = "Беск. подбор",
+            AutoPick = "Авто-подбор пистолета",
+            InfPickup = "Беск. дистанция подбора",
             OneTap = "One Tap Knife",
 
             SecMisc = "Прочее",
@@ -332,23 +312,18 @@ function Combat.Init(GlobalConfig, UI, Lang)
             Tab = "⚔️ Combat",
             SecAim = "Aimbot",
             AimEnable = "1. Aimbot",
-            AimMode = "Mode",
+            AimMode = "Aimbot Mode",
             Pred = "Prediction",
             Smooth = "Smoothness",
-            Silent = "Silent Aim",
             FOV = "FOV Radius",
             FOVTrans = "FOV Transparency",
             Trigger = "Triggerbot",
 
-            SecHacker = "Hacker Mode (Sheriff)",
-            HackerToggle = "Hacker Mode",
-            HackerDesc = "Teleport behind murderer, lock cam, auto shoot",
-
             SecAuto = "Automation",
-            AutoEquip = "Auto-Equip",
+            AutoEquip = "Auto-Equip Gun",
             AutoShot = "Auto-Shot",
-            AutoPick = "Auto-Pick",
-            InfPickup = "Infinite Pickup",
+            AutoPick = "Auto-Pick Gun",
+            InfPickup = "Infinite Pickup Range",
             OneTap = "One Tap Knife",
 
             SecMisc = "Misc",
@@ -361,28 +336,22 @@ function Combat.Init(GlobalConfig, UI, Lang)
     local text = T[Lang] or T.RU
     local tab = UI:CreateTab(text.Tab)
 
-    -- Aimbot
+    -- Aimbot Section
     tab:AddSection(text.SecAim)
     tab:AddToggle({ Title = text.AimEnable, Default = false, Callback = function(s) Combat.Config.AimEnabled = s end })
     tab:AddDropdown({
         Title = text.AimMode,
-        Options = {"Static", "Dynamic", "Smooth"},
-        Default = "Dynamic",
+        Options = {"Static", "Dynamic", "Smooth", "Hacker"},
+        Default = Combat.Config.AimMode,
         Callback = function(v) Combat.Config.AimMode = v end
     })
-    tab:AddNumberInput({ Title = text.Pred, Min = 0, Max = 100, Default = 15, Callback = function(v) Combat.Config.Prediction = v end })
-    tab:AddNumberInput({ Title = text.Smooth, Min = 1, Max = 10, Default = 5, Callback = function(v) Combat.Config.SmoothSpeed = v end })
-    tab:AddToggle({ Title = text.Silent, Default = false, Callback = function(s) Combat.Config.SilentAim = s end })
-    tab:AddNumberInput({ Title = text.FOV, Min = 30, Max = 500, Default = 120, Callback = function(v) Combat.Config.FOV = v end })
-    tab:AddNumberInput({ Title = text.FOVTrans, Min = 0, Max = 1, Default = 0.5, Callback = function(v) Combat.Config.FOVTransparency = v end })
+    tab:AddNumberInput({ Title = text.Pred, Min = 0, Max = 100, Default = Combat.Config.Prediction, Callback = function(v) Combat.Config.Prediction = v end })
+    tab:AddNumberInput({ Title = text.Smooth, Min = 1, Max = 10, Default = Combat.Config.SmoothSpeed, Callback = function(v) Combat.Config.SmoothSpeed = v end })
+    tab:AddNumberInput({ Title = text.FOV, Min = 30, Max = 500, Default = Combat.Config.FOV, Callback = function(v) Combat.Config.FOV = v end })
+    tab:AddNumberInput({ Title = text.FOVTrans, Min = 0, Max = 1, Default = Combat.Config.FOVTransparency, Callback = function(v) Combat.Config.FOVTransparency = v end })
     tab:AddToggle({ Title = text.Trigger, Default = false, Callback = function(s) Combat.Config.TriggerBot = s end })
 
-    -- Hacker Mode
-    tab:AddSection(text.SecHacker)
-    tab:AddToggle({ Title = text.HackerToggle, Default = false, Callback = function(s) Combat.Config.HackerMode = s end })
-    tab:AddLabel(text.HackerDesc)
-
-    -- Automation
+    -- Automation Section
     tab:AddSection(text.SecAuto)
     tab:AddToggle({ Title = text.AutoEquip, Default = false, Callback = function(s) Combat.Config.AutoEquipGun = s end })
     tab:AddToggle({ Title = text.AutoShot, Default = false, Callback = function(s) Combat.Config.AutoShot = s end })
@@ -390,7 +359,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
     tab:AddToggle({ Title = text.InfPickup, Default = false, Callback = function(s) Combat.Config.InfinitePickup = s end })
     tab:AddToggle({ Title = text.OneTap, Default = false, Callback = function(s) Combat.Config.OneTapKnife = s end })
 
-    -- Misc
+    -- Misc Section
     tab:AddSection(text.SecMisc)
     tab:AddToggle({ Title = text.NoRecoil, Default = false, Callback = function(s) Combat.Config.NoRecoil = s end })
     tab:AddToggle({ Title = text.AntiAim, Default = false, Callback = function(s) Combat.Config.AntiAim = s end })
