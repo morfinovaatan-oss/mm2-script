@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Hacker Mode Final Fix (Heartbeat sync, no jitter, reliable shot) ]] --
+-- [[ MM2 COMBAT MODULE – Polished Hacker Mode (No input spam, cooldown, Remote only) ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -59,11 +59,13 @@ local FOVStroke = Instance.new("UIStroke", FOVFrame)
 FOVStroke.Thickness = 1.5
 FOVStroke.Color = Color3.fromRGB(160, 32, 240)
 
--- ================== Кэш и вспомогательные переменные ==================
-local remoteCache = nil        -- закэшированный RemoteEvent
-local lastTool = nil           -- последний найденный инструмент для обнаружения смены оружия
-local bodyVelocity = nil       -- BodyVelocity для подавления физики
-local hackerActive = false     -- флаг активности Hacker Mode (для очистки ресурсов)
+-- ================== Состояния и кэш ==================
+local remoteCache = nil
+local lastTool = nil
+local bodyVelocity = nil
+local hackerActive = false
+local lastShotTime = 0
+local SHOT_COOLDOWN = 0.5  -- секунд между выстрелами
 
 -- ================== Helpers ==================
 local function SimulateClick()
@@ -213,9 +215,7 @@ end)
 
 -- ================== Кэширование RemoteEvent ==================
 local function getOrFindRemote()
-    -- Если кэш есть и связанный инструмент не поменялся, возвращаем его
     if remoteCache then
-        -- Проверяем, не уничтожили ли его
         if remoteCache.Parent then
             return remoteCache
         else
@@ -223,7 +223,6 @@ local function getOrFindRemote()
         end
     end
 
-    -- Ищем в текущем оружии
     local char = LocalPlayer.Character
     if char then
         local tool = char:FindFirstChildOfClass("Tool")
@@ -234,7 +233,6 @@ local function getOrFindRemote()
         end
     end
 
-    -- Ищем в ReplicatedStorage по известным именам
     local names = {"ShootGun", "Shoot", "FireGun", "GunEvent", "ShootEvent"}
     for _, name in ipairs(names) do
         local ev = ReplicatedStorage:FindFirstChild(name, true)
@@ -264,7 +262,7 @@ local function disableAntiGravity()
     end
 end
 
--- ================== Основной цикл через Heartbeat ==================
+-- ================== Единый Heartbeat ==================
 local heartbeatConnection
 local function startHeartbeat()
     if heartbeatConnection then return end
@@ -272,7 +270,6 @@ local function startHeartbeat()
         pcall(function()
             local char = LocalPlayer.Character
             if not char or char:FindFirstChildOfClass("Humanoid").Health <= 0 then
-                -- Останавливаем Hacker Mode, если умерли
                 if hackerActive then
                     hackerActive = false
                     disableAntiGravity()
@@ -298,11 +295,10 @@ local function startHeartbeat()
 
                             -- Телепорт за спину
                             local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * Combat.Config.HackerDistance)
-                            -- Добавляем небольшое смещение по высоте, чтобы не провалиться под землю
                             behindPos = behindPos + Vector3.new(0, 2.5, 0)
                             char:PivotTo(CFrame.new(behindPos, mRoot.Position))
 
-                            -- Обнуляем скорость, чтобы не было дёрганий
+                            -- Обнуляем скорость
                             local rootPart = char.HumanoidRootPart
                             if rootPart then
                                 rootPart.Velocity = Vector3.new(0, 0, 0)
@@ -318,8 +314,7 @@ local function startHeartbeat()
                             -- ФИКСАЦИЯ КАМЕРЫ
                             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
 
-                            -- Авто-экипировка: делается один раз при входе в режим (логика ниже)
-                            -- Но для надёжности проверяем, есть ли оружие в руках
+                            -- Экипировка (однократно, если нужно)
                             local tool = char:FindFirstChildOfClass("Tool")
                             if not tool or tool.Name ~= "Gun" then
                                 if Combat.Config.AutoEquipGun then
@@ -331,21 +326,16 @@ local function startHeartbeat()
                                 end
                             end
 
-                            -- Авто-выстрел
-                            if Combat.Config.AutoShot then
+                            -- Авто-выстрел с кулдауном и только через RemoteEvent
+                            if Combat.Config.AutoShot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                                 local currentTool = char:FindFirstChildOfClass("Tool")
                                 if currentTool and (currentTool.Name == "Gun" or currentTool:FindFirstChild("Gun")) then
                                     local remote = getOrFindRemote()
                                     if remote then
                                         remote:FireServer(targetPos)
-                                    else
-                                        -- Эмулируем клик: сначала наводим мышь на цель, потом стреляем
-                                        local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
-                                        if onScreen then
-                                            VirtualInputManager:SendMouseMoveEvent(screenPos.X, screenPos.Y, game)
-                                        end
-                                        SimulateClick()
+                                        lastShotTime = tick()
                                     end
+                                    -- Полностью игнорируем эмуляцию мыши
                                 end
                             end
                         end
@@ -370,14 +360,13 @@ local function startHeartbeat()
                             SmoothAim(targetPos)
                         end
                     end
-                    if Combat.Config.AutoShot and targetPos then
+                    if Combat.Config.AutoShot and targetPos and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                         local tool = char:FindFirstChildOfClass("Tool")
                         if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
                             local remote = getOrFindRemote()
                             if remote then
                                 remote:FireServer(targetPos)
-                            else
-                                SimulateClick()
+                                lastShotTime = tick()
                             end
                         end
                     end
@@ -387,8 +376,8 @@ local function startHeartbeat()
                 disableAntiGravity()
             end
 
-            -- Триггер-бот
-            if Combat.Config.TriggerBot then
+            -- Триггер-бот (с кулдауном, использует SimulateClick)
+            if Combat.Config.TriggerBot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                 local mousePos = UserInputService:GetMouseLocation()
                 local ray = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
                 local params = RaycastParams.new()
@@ -399,6 +388,7 @@ local function startHeartbeat()
                     local hitPlayer = Players:GetPlayerFromCharacter(result.Instance.Parent)
                     if hitPlayer and hitPlayer ~= LocalPlayer and IsThreat(hitPlayer) then
                         SimulateClick()
+                        lastShotTime = tick()
                     end
                 end
             end
@@ -437,7 +427,6 @@ local function startHeartbeat()
     end)
 end
 
--- Запускаем Heartbeat соединение
 startHeartbeat()
 
 -- ================== Бинды клавиш ==================
@@ -445,8 +434,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
     if input.KeyCode == Combat.Config.ShootKey then
-        -- Если Hacker Mode с AutoShot выключен, игрок сам стреляет, и этот бинд позволяет выстрелить
-        -- Если AutoShot включен, этот бинд можно не использовать (чтобы не дублировать), но мы оставим, вдруг игрок хочет дополнительно выстрелить
+        -- Ручная стрельба доступна только если авто‑выстрел выключен (или не в Hacker с авто‑выстрелом)
         if not (Combat.Config.AimEnabled and Combat.Config.AimMode == "Hacker" and Combat.Config.AutoShot) then
             SimulateClick()
         end
