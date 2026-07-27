@@ -274,7 +274,7 @@ task.spawn(function()
         end
     end)
 
-    while task.wait(0.03) do
+     while task.wait(0.03) do
         pcall(function()
             local char = LocalPlayer.Character
             if not char or char:FindFirstChildOfClass("Humanoid").Health <= 0 then
@@ -286,24 +286,43 @@ task.spawn(function()
             FOVStroke.Transparency = Combat.Config.FOVTransparency
             FOVFrame.Visible = Combat.Config.AimEnabled
 
-            -- Аимбот
+            -- ================= ИСПРАВЛЕННЫЙ АИМБОТ (ВСТАВЛЯТЬ СЮДА) =================
             if Combat.Config.AimEnabled then
                 if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
                     local murderer = FindMurderer()
                     if murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") then
                         local mRoot = murderer.Character.HumanoidRootPart
                         local mHead = murderer.Character:FindFirstChild("Head")
-                        local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * 15)
-                        char:FindFirstChild("HumanoidRootPart").CFrame = CFrame.new(behindPos, mRoot.Position)
-                        if mHead then
-                            Camera.CFrame = CFrame.new(Camera.CFrame.Position, mHead.Position)
+                        local myRoot = char:FindFirstChild("HumanoidRootPart")
+                        
+                        if myRoot and mHead then
+                            local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * 15)
+                            
+                            -- Гасим физику падения
+                            myRoot.Velocity = Vector3.zero
+                            myRoot.RotVelocity = Vector3.zero
+                            
+                            myRoot.CFrame = CFrame.lookAt(behindPos, mRoot.Position)
+                            
+                            -- Стабильная камера
+                            Camera.CameraType = Enum.CameraType.Scriptable
+                            Camera.CFrame = CFrame.lookAt(myRoot.Position + Vector3.new(0, 2.5, 6), mHead.Position)
+                            
+                            local tool = char:FindFirstChildOfClass("Tool")
+                            if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
+                                SimulateClick()
+                            end
                         end
-                        local tool = char:FindFirstChildOfClass("Tool")
-                        if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-                            SimulateClick()
+                    else
+                        if Camera.CameraType == Enum.CameraType.Scriptable then
+                            Camera.CameraType = Enum.CameraType.Custom
                         end
                     end
                 else
+                    if Camera.CameraType == Enum.CameraType.Scriptable then
+                        Camera.CameraType = Enum.CameraType.Custom
+                    end
+
                     local target = GetAimTarget()
                     local targetPos = target and target.Position
                     if targetPos and Combat.Config.Prediction > 0 then
@@ -314,7 +333,7 @@ task.spawn(function()
                     end
                     if targetPos then
                         if Combat.Config.AimMode == "Static" then
-                            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
+                            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
                         elseif Combat.Config.AimMode == "Smooth" or Combat.Config.AimMode == "Dynamic" then
                             SmoothAim(targetPos)
                         end
@@ -326,10 +345,16 @@ task.spawn(function()
                         end
                     end
                 end
+            else
+                if Camera.CameraType == Enum.CameraType.Scriptable then
+                    Camera.CameraType = Enum.CameraType.Custom
+                end
             end
+            -- =======================================================================
 
             -- Триггер-бот
             if Combat.Config.TriggerBot then
+                -- ... тут дальше идет твой старый код
                 local mousePos = UserInputService:GetMouseLocation()
                 local ray = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
                 local params = RaycastParams.new()
