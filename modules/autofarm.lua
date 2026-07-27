@@ -1,53 +1,61 @@
--- [[ MM2 AUTOFARM MODULE – Enhanced with Octree & Smart Checks ]] --
+-- [[ MM2 FULLY AUTOMATIC AFK FARMER – Octree + State Machine (No Post-Bag Actions) ]] --
 local Autofarm = {}
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
 local StarterGui = game:GetService("StarterGui")
 local HttpService = game:GetService("HttpService")
 
--- Конфигурация (значения по умолчанию)
+-- ================== Config ==================
 Autofarm.Config = {
     Enabled = false,
-    Radius = 120,           -- радиус поиска монет
-    WalkSpeed = 20,         -- скорость перемещения к монете (studs/s)
-    TpBackToStart = true,   -- возвращаться на стартовую позицию после наполнения мешка
-    Uninterrupted = false,  -- умереть перед фармом для безопасности
-    AutoAction = true,      -- выполнять роль-действие при полном мешке
+    Radius = 120,
+    WalkSpeed = 20,
+    TpBackToStart = true,
 }
 
--- Внутренние переменные
+-- ================== Internal State Machine ==================
+local State = {
+    WaitingForRound = "WaitingForRound",
+    Action = "Action",
+    WaitingForRoundEnd = "WaitingForRoundEnd",
+    RespawnState = "RespawnState"
+}
+local CurrentState = State.WaitingForRound
+local lastPosition = nil
+local roundInProgress = false
+local isMurderer = false
+local working = false
+local bagIsFull = false
+
+-- Octree and containers
 local octree = nil
+local coinContainer = nil
 local touchedCoins = {}
 local positionChangeConnections = {}
-local farmingLoop = nil
-local startPosition = nil
-local coinContainer = nil
 local AddedConn, RemovingConn = nil, nil
-local characterConnection = nil
 
--- ================== Загрузка Octree ==================
+-- GUI references
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local mainGUI = playerGui:WaitForChild("MainGUI")
+local roundTimer = Workspace:WaitForChild("RoundTimerPart").SurfaceGui.Timer
+
+-- ================== Octree Loading ==================
 local function loadOctree()
     if octree then return true end
     local success, result = pcall(function()
         return game:HttpGet("https://raw.githubusercontent.com/Sleitnick/rbxts-octo-tree/main/src/init.lua")
     end)
-    if not success or not result then
-        warn("Не удалось загрузить Octree")
-        return false
-    end
+    if not success or not result then return false end
     local octreeModule = loadstring(result)()
     if not octreeModule then return false end
     octree = octreeModule.new()
     return true
 end
 
--- ================== Помощники ==================
+-- ================== Helpers ==================
 local function getMap()
     for _, v in ipairs(Workspace:GetDescendants()) do
         if v.Name == "Spawns" and v.Parent.Name ~= "Lobby" then
@@ -59,91 +67,42 @@ end
 
 local function getCoinContainer()
     local map = getMap()
-    if map then
-        return map:FindFirstChild("CoinContainer")
-    end
-    return nil
+    return map and map:FindFirstChild("CoinContainer")
 end
 
-local function getRole()
-    local char = LocalPlayer.Character
-    if not char then return "Innocent" end
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife")) then
-        return "Murderer"
+local function isBagFull()
+    local coinsLabel = mainGUI:FindFirstChild("Game") 
+        and mainGUI.Game:FindFirstChild("CoinBags") 
+        and mainGUI.Game.CoinBags:FindFirstChild("Container") 
+        and mainGUI.Game.CoinBags.Container:FindFirstChild("SnowToken") 
+        and mainGUI.Game.CoinBags.Container.SnowToken:FindFirstChild("CurrencyFrame") 
+        and mainGUI.Game.CoinBags.Container.SnowToken.CurrencyFrame:FindFirstChild("Icon") 
+        and mainGUI.Game.CoinBags.Container.SnowToken.CurrencyFrame.Icon:FindFirstChild("Coins")
+    if coinsLabel and coinsLabel:IsA("TextLabel") then
+        local maxCoins = LocalPlayer:GetAttribute("Elite") and 50 or 40
+        return tonumber(coinsLabel.Text) >= maxCoins
     end
-    if char:FindFirstChild("Gun") or char:FindFirstChild("Revolver") or (backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChild("Revolver"))) then
-        return "Sheriff"
+    -- Fallback
+    if octree and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local nearest = octree:GetNearest(LocalPlayer.Character.HumanoidRootPart.Position, 10000, 1)
+        return #nearest == 0
     end
-    return "Innocent"
+    return false
 end
 
-local function findMurderer()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local hasKnife = player.Character:FindFirstChild("Knife") or (player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Knife"))
-            if hasKnife and player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
-                return player
-            end
-        end
-    end
-    return nil
+local function isCharacterAlive()
+    return LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") and LocalPlayer.Character:FindFirstChildOfClass("Humanoid").Health > 0
 end
 
--- Простой флинг (телепорт + вращение)
-local function flingPlayer(player)
-    if not player or not player.Character then return end
-    local myChar = LocalPlayer.Character
-    if not myChar then return end
-    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-    local targetRoot = player.Character:FindFirstChild("HumanoidRootPart")
-    if not myRoot or not targetRoot then return end
-    myRoot.CFrame = targetRoot.CFrame + Vector3.new(0, 1.5, 0)
-    task.wait(0.05)
-    local start = tick()
-    local conn
-    conn = RunService.Stepped:Connect(function(_, dt)
-        if tick() - start > 0.25 or not myRoot.Parent or not targetRoot.Parent then
-            conn:Disconnect()
-            return
-        end
-        myRoot.CFrame = targetRoot.CFrame * CFrame.Angles(0, math.rad(20), 0) + Vector3.new(0, 0.5, 0)
-    end)
+local function getCharacter()
+    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
 
--- Действие шерифа: телепорт за спину мёрдера + выстрел
-local function sheriffAction()
-    local murderer = findMurderer()
-    if not murderer then return end
-    local char = LocalPlayer.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    local mRoot = murderer.Character.HumanoidRootPart
-    local mHead = murderer.Character:FindFirstChild("Head")
-    local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * 15)
-    root.CFrame = CFrame.new(behindPos, mRoot.Position)
-    if mHead then
-        Camera.CFrame = CFrame.new(Camera.CFrame.Position, mHead.Position)
-    end
-    task.wait(0.1)
-    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-    task.wait(0.02)
-    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+local function roundActive()
+    return roundInProgress and getMap() ~= nil
 end
 
-local function murdererAction()
-    -- Заглушка
-    if StarterGui then
-        StarterGui:SetCore("SendNotification", {
-            Title = "Автофарм",
-            Text = "Действие для Murderer пока в разработке",
-            Duration = 3
-        })
-    end
-end
-
--- ================== Работа с Octree и монетами ==================
+-- ================== Coin Management ==================
 local function isCoinTouched(coin)
     return touchedCoins[coin] == true
 end
@@ -152,24 +111,21 @@ local function markCoinAsTouched(coin)
     touchedCoins[coin] = true
     if octree then
         local node = octree:FindFirstNode(coin)
-        if node then
-            octree:RemoveNode(node)
-        end
+        if node then octree:RemoveNode(node) end
     end
 end
 
 local function setupTouchTracking(coin)
     local touchInterest = coin:FindFirstChildWhichIsA("TouchTransmitter")
-    if touchInterest then
-        local conn
-        conn = touchInterest.AncestryChanged:Connect(function(_, parent)
-            if parent == nil then
-                markCoinAsTouched(coin)
-                if conn then conn:Disconnect() end
-            end
-        end)
-        positionChangeConnections[coin] = conn
-    end
+    if not touchInterest then return end
+    local conn
+    conn = touchInterest.AncestryChanged:Connect(function(_, parent)
+        if parent == nil then
+            markCoinAsTouched(coin)
+            if conn then conn:Disconnect() end
+        end
+    end)
+    positionChangeConnections[coin] = conn
 end
 
 local function setupPositionTracking(coin)
@@ -188,6 +144,7 @@ end
 local function populateOctree()
     if not octree then return end
     octree:ClearAllNodes()
+    if not coinContainer then return end
     for _, desc in ipairs(coinContainer:GetDescendants()) do
         if desc:IsA("TouchTransmitter") then
             local coin = desc.Parent
@@ -198,7 +155,6 @@ local function populateOctree()
             setupPositionTracking(coin)
         end
     end
-    -- Слушаем добавление новых монет
     AddedConn = coinContainer.DescendantAdded:Connect(function(desc)
         if desc:IsA("TouchTransmitter") then
             local coin = desc.Parent
@@ -216,7 +172,21 @@ local function populateOctree()
     end)
 end
 
-local function moveToPositionSlowly(targetPos, duration)
+local function clearConnections()
+    for _, conn in pairs(positionChangeConnections) do
+        if conn and conn.Connected then conn:Disconnect() end
+    end
+    table.clear(positionChangeConnections)
+    table.clear(touchedCoins)
+    if AddedConn then AddedConn:Disconnect(); AddedConn = nil end
+    if RemovingConn then RemovingConn:Disconnect(); RemovingConn = nil end
+    if octree then
+        octree:ClearAllNodes()
+        -- Keep octree object, just clear nodes
+    end
+end
+
+local function moveToCoin(targetPos, duration)
     local char = LocalPlayer.Character
     if not char or not char.PrimaryPart then return end
     local startPos = char.PrimaryPart.Position
@@ -224,6 +194,7 @@ local function moveToPositionSlowly(targetPos, duration)
     while true do
         local elapsed = tick() - startTime
         local alpha = math.min(elapsed / duration, 1)
+        if not char or not char.PrimaryPart then break end
         char:PivotTo(CFrame.new(startPos:Lerp(targetPos, alpha)))
         if alpha >= 1 then
             task.wait(0.2)
@@ -233,141 +204,168 @@ local function moveToPositionSlowly(targetPos, duration)
     end
 end
 
-local function checkFullBag()
-    local gui = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
-    if not gui then return false end
-    local coinsLabel = gui:FindFirstChild("Game") and gui.Game:FindFirstChild("CoinBags") 
-        and gui.Game.CoinBags:FindFirstChild("Container") 
-        and gui.Game.CoinBags.Container:FindFirstChild("SnowToken") 
-        and gui.Game.CoinBags.Container.SnowToken:FindFirstChild("CurrencyFrame") 
-        and gui.Game.CoinBags.Container.SnowToken.CurrencyFrame:FindFirstChild("Icon") 
-        and gui.Game.CoinBags.Container.SnowToken.CurrencyFrame.Icon:FindFirstChild("Coins")
-    if coinsLabel and coinsLabel:IsA("TextLabel") then
-        local maxCoins = 40
-        if LocalPlayer:GetAttribute("Elite") then maxCoins = 50 end
-        return coinsLabel.Text == tostring(maxCoins)
-    end
-    -- Fallback: если GUI не найден, считаем что мешок полон, когда нет монет
-    if octree then
-        local nearest = octree:GetNearest(LocalPlayer.Character and LocalPlayer.Character.PrimaryPart and LocalPlayer.Character.PrimaryPart.Position or Vector3.zero, 10000, 1)
-        return #nearest == 0
-    end
-    return false
+-- ================== State Handlers ==================
+local function changeState(newState)
+    CurrentState = newState
 end
 
--- ================== Основной цикл фарма ==================
-local function collectCoins()
-    local char = LocalPlayer.Character
-    if not char or not char.PrimaryPart then return end
+local function waitingForRound()
+    working = false
+    repeat
+        task.wait(0.5)
+    until roundActive() and LocalPlayer:GetAttribute("Alive")
+    changeState(State.Action)
+end
 
-    -- Сохраняем стартовую позицию, если ещё нет
-    if not startPosition then
-        startPosition = char:GetPivot()
+local function waitingForRoundEnd()
+    working = false
+    if isCharacterAlive() and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+        LocalPlayer.Character:FindFirstChildOfClass("Humanoid").Health = 0
     end
+    repeat task.wait(0.5) until not roundActive()
+    changeState(State.WaitingForRound)
+end
 
-    while Autofarm.Config.Enabled do
-        if checkFullBag() then
-            if Autofarm.Config.AutoAction then
-                local role = getRole()
-                if role == "Innocent" then
-                    flingPlayer(findMurderer())
-                elseif role == "Sheriff" then
-                    sheriffAction()
-                elseif role == "Murderer" then
-                    murdererAction()
-                end
-            end
-            if Autofarm.Config.TpBackToStart and startPosition then
-                char:PivotTo(startPosition)
-            end
-            -- Очистка и выход из цикла (запускаем заново при следующем включении)
-            Autofarm.Config.Enabled = false
-            farmingLoop = nil
-            return
+local function respawnState()
+    local char = getCharacter()
+    task.wait(1)
+    if lastPosition then
+        char:PivotTo(lastPosition)
+    end
+    if not roundActive() then
+        changeState(State.WaitingForRound)
+        return
+    end
+    changeState(State.Action)
+end
+
+local function actionState()
+    lastPosition = LocalPlayer.Character and LocalPlayer.Character:GetPivot()
+    coinContainer = getCoinContainer()
+    if not coinContainer then
+        -- Map not ready, go back to waiting
+        changeState(State.WaitingForRound)
+        return
+    end
+    populateOctree()
+    working = true
+    while working and roundActive() do
+        if isBagFull() then
+            bagIsFull = true
+            break
         end
-
-        if not octree then break end
-
-        local nearest = octree:GetNearest(char.PrimaryPart.Position, Autofarm.Config.Radius, 1)
-        if nearest and #nearest > 0 then
-            local node = nearest[1]
-            local coin = node.Object
-            if not isCoinTouched(coin) then
-                local dist = (char.PrimaryPart.Position - coin.Position).Magnitude
-                local duration = dist / Autofarm.Config.WalkSpeed
-                moveToPositionSlowly(coin.Position, duration)
-                -- Ждём, пока сработает касание
-                markCoinAsTouched(coin)
-                task.wait(0.2)
+        if not isCharacterAlive() then
+            break
+        end
+        if octree then
+            local nearest = octree:GetNearest(LocalPlayer.Character.PrimaryPart.Position, Autofarm.Config.Radius, 1)
+            if nearest and #nearest > 0 then
+                local coin = nearest[1].Object
+                if not isCoinTouched(coin) then
+                    local dist = (LocalPlayer.Character.PrimaryPart.Position - coin.Position).Magnitude
+                    local duration = dist / Autofarm.Config.WalkSpeed
+                    moveToCoin(coin.Position, duration)
+                    markCoinAsTouched(coin)
+                    task.wait(0.2)
+                end
+            else
+                task.wait(0.5)
             end
         else
             task.wait(0.5)
         end
     end
-end
-
-local function startFarming()
-    if farmingLoop then return end
-    if not loadOctree() then return end
-
-    coinContainer = getCoinContainer()
-    if not coinContainer then
-        warn("CoinContainer не найден")
-        return
-    end
-
-    -- При Uninterrupted: убиваем себя, ждём возрождения, телепортируемся к мёрдеру
-    if Autofarm.Config.Uninterrupted then
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChildOfClass("Humanoid") then
-            char:FindFirstChildOfClass("Humanoid").Health = 0
-            repeat task.wait() until LocalPlayer.CharacterAdded:Wait()
-            task.wait(1)
-            local murderer = findMurderer()
-            if murderer then
-                LocalPlayer.Character:PivotTo(murderer.Character:GetPivot())
+    clearConnections()
+    if bagIsFull or not roundActive() then
+        if isMurderer then
+            -- Murderer just stops
+            bagIsFull = false
+            working = false
+            if Autofarm.Config.TpBackToStart and lastPosition then
+                local char = getCharacter()
+                char:PivotTo(lastPosition)
             end
+            changeState(State.WaitingForRoundEnd)
+        else
+            -- Innocent/Sheriff: die, wait for next round
+            bagIsFull = false
+            working = false
+            if Autofarm.Config.TpBackToStart and lastPosition then
+                local char = getCharacter()
+                char:PivotTo(lastPosition)
+            end
+            changeState(State.WaitingForRoundEnd)
         end
-    end
-
-    populateOctree()
-    farmingLoop = task.spawn(collectCoins)
-end
-
-local function stopFarming()
-    Autofarm.Config.Enabled = false
-    if farmingLoop then
-        farmingLoop = nil
-    end
-    -- Отключаем все соединения
-    for _, conn in pairs(positionChangeConnections) do
-        if conn.Connected then conn:Disconnect() end
-    end
-    table.clear(positionChangeConnections)
-    table.clear(touchedCoins)
-    if AddedConn then AddedConn:Disconnect(); AddedConn = nil end
-    if RemovingConn then RemovingConn:Disconnect(); RemovingConn = nil end
-    if octree then
-        octree:ClearAllNodes()
-        octree = nil
-    end
-    -- Возвращаемся на стартовую позицию, если нужно
-    if Autofarm.Config.TpBackToStart and startPosition then
-        local char = LocalPlayer.Character
-        if char then
-            char:PivotTo(startPosition)
-        end
+    else
+        -- Died during farming
+        changeState(State.RespawnState)
     end
 end
 
--- Сброс при смерти персонажа
-characterConnection = LocalPlayer.CharacterRemoving:Connect(function()
-    if Autofarm.Config.Enabled then
-        stopFarming()
+-- ================== Event Listeners ==================
+-- Detect role
+LocalPlayer.DescendantAdded:Connect(function(desc)
+    if desc:IsA("Tool") and desc.Name == "Knife" then
+        isMurderer = true
+    end
+end)
+LocalPlayer.Backpack.ChildAdded:Connect(function(child)
+    if child.Name == "Knife" then isMurderer = true end
+end)
+
+-- Round start/end detection
+local lastTimerText = roundTimer.Text
+roundTimer:GetPropertyChangedSignal("Text"):Connect(function()
+    roundInProgress = true
+    if CurrentState == State.WaitingForRound then
+        -- round started while waiting, change immediately
+        changeState(State.Action)
     end
 end)
 
--- ================== Инициализация UI ==================
+playerGui.ChildAdded:Connect(function(child)
+    if child:IsA("Sound") then
+        roundInProgress = false
+        if CurrentState == State.Action or CurrentState == State.RespawnState then
+            working = false
+            changeState(State.WaitingForRound)
+        end
+    end
+end)
+
+-- Death handling
+LocalPlayer.CharacterRemoving:Connect(function()
+    if not working then return end
+    clearConnections()
+    if not roundActive() then
+        changeState(State.WaitingForRound)
+    else
+        lastPosition = lastPosition or (LocalPlayer.Character and LocalPlayer.Character:GetPivot())
+        changeState(State.RespawnState)
+    end
+end)
+
+-- Start state machine
+task.spawn(function()
+    while true do
+        if not Autofarm.Config.Enabled then
+            task.wait(1)
+            continue
+        end
+        if CurrentState == State.WaitingForRound then
+            waitingForRound()
+        elseif CurrentState == State.Action then
+            actionState()
+        elseif CurrentState == State.WaitingForRoundEnd then
+            waitingForRoundEnd()
+        elseif CurrentState == State.RespawnState then
+            respawnState()
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- ================== UI Init ==================
 function Autofarm.Init(GlobalConfig, UI, Lang)
     local T = {
         RU = {
@@ -376,8 +374,6 @@ function Autofarm.Init(GlobalConfig, UI, Lang)
             Radius = "Радиус поиска",
             Speed = "Скорость движения",
             TpBack = "Возврат на старт",
-            Uninterrupted = "Uninterrupted режим",
-            AutoAction = "Действие при полном мешке",
             SetStart = "Запомнить позицию",
         },
         EN = {
@@ -386,8 +382,6 @@ function Autofarm.Init(GlobalConfig, UI, Lang)
             Radius = "Search Radius",
             Speed = "Movement Speed",
             TpBack = "Return to start",
-            Uninterrupted = "Uninterrupted mode",
-            AutoAction = "Action on full bag",
             SetStart = "Set current position",
         }
     }
@@ -395,75 +389,45 @@ function Autofarm.Init(GlobalConfig, UI, Lang)
 
     local FarmTab = UI:CreateTab(text.TabName)
 
-    -- Включение/выключение
     FarmTab:AddToggle({
         Title = text.Enable,
         Default = false,
         Callback = function(val)
             Autofarm.Config.Enabled = val
-            if val then
-                startFarming()
-            else
-                stopFarming()
+            if not val then
+                working = false
+                clearConnections()
             end
         end
     })
 
-    -- Радиус поиска
     FarmTab:AddNumberInput({
         Title = text.Radius,
         Min = 50,
         Max = 400,
         Default = Autofarm.Config.Radius,
-        Callback = function(v)
-            Autofarm.Config.Radius = v
-        end
+        Callback = function(v) Autofarm.Config.Radius = v end
     })
 
-    -- Скорость движения
     FarmTab:AddNumberInput({
         Title = text.Speed,
         Min = 10,
         Max = 40,
         Default = Autofarm.Config.WalkSpeed,
-        Callback = function(v)
-            Autofarm.Config.WalkSpeed = v
-        end
+        Callback = function(v) Autofarm.Config.WalkSpeed = v end
     })
 
-    -- Возврат на старт
     FarmTab:AddToggle({
         Title = text.TpBack,
         Default = Autofarm.Config.TpBackToStart,
-        Callback = function(v)
-            Autofarm.Config.TpBackToStart = v
-        end
+        Callback = function(v) Autofarm.Config.TpBackToStart = v end
     })
 
-    -- Uninterrupted
-    FarmTab:AddToggle({
-        Title = text.Uninterrupted,
-        Default = Autofarm.Config.Uninterrupted,
-        Callback = function(v)
-            Autofarm.Config.Uninterrupted = v
-        end
-    })
-
-    -- Автодействие при полном мешке
-    FarmTab:AddToggle({
-        Title = text.AutoAction,
-        Default = Autofarm.Config.AutoAction,
-        Callback = function(v)
-            Autofarm.Config.AutoAction = v
-        end
-    })
-
-    -- Кнопка запомнить текущую позицию
     FarmTab:AddButton(text.SetStart, function()
         local char = LocalPlayer.Character
         if char and char:FindFirstChild("HumanoidRootPart") then
-            startPosition = char:GetPivot()
-            if UI and UI.Notification then
+            lastPosition = char:GetPivot()
+            if UI.Notification then
                 UI:Notification("AutoFarm", "Позиция сохранена!", 2)
             end
         end
