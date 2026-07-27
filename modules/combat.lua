@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Hacker Mode Fixed + AutoShot Working ]] --
+-- [[ MM2 COMBAT MODULE – Hacker Mode Fix (Sticky behind + Mouse Aim + Working AutoShot) ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -204,28 +204,6 @@ workspace.DescendantAdded:Connect(function(descendant)
     end
 end)
 
--- ================== Поиск RemoteEvent для выстрела ==================
-local shootRemote = nil
-local function getShootRemote()
-    if shootRemote then return shootRemote end
-    local names = {"ShootGun", "Shoot", "FireGun", "GunEvent", "ShootEvent"}
-    for _, name in ipairs(names) do
-        local remote = ReplicatedStorage:FindFirstChild(name, true)
-        if remote and remote:IsA("RemoteEvent") then
-            shootRemote = remote
-            return remote
-        end
-    end
-    if LocalPlayer.Character then
-        local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
-        if tool and tool:FindFirstChildOfClass("RemoteEvent") then
-            shootRemote = tool:FindFirstChildOfClass("RemoteEvent")
-            return shootRemote
-        end
-    end
-    return nil
-end
-
 -- ================== Main Loop ==================
 task.spawn(function()
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -304,10 +282,6 @@ task.spawn(function()
             FOVStroke.Transparency = Combat.Config.FOVTransparency
             FOVFrame.Visible = Combat.Config.AimEnabled
 
-            if Camera.CameraType == Enum.CameraType.Scriptable then
-                Camera.CameraType = Enum.CameraType.Custom
-            end
-
             -- ================= АИМБОТ =================
             if Combat.Config.AimEnabled then
                 if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
@@ -316,38 +290,46 @@ task.spawn(function()
                         local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
                         local mHead = murderer.Character:FindFirstChild("Head") or mRoot
                         if mRoot then
-                            -- 1. Позиция за спиной
+                            -- 1. Телепорт за спину
                             local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * Combat.Config.HackerDistance)
                             char:PivotTo(CFrame.new(behindPos, mRoot.Position))
 
-                            -- 2. Камера на цель
-                            local targetPos = mHead.Position
-                            if Combat.Config.Prediction > 0 then
-                                targetPos += mRoot.Velocity * (Combat.Config.Prediction / 1000)
+                            -- 2. Наведение мыши на голову (Silent Aim)
+                            local screenPos, onScreen = Camera:WorldToViewportPoint(mHead.Position)
+                            if onScreen then
+                                VirtualInputManager:SendMouseMoveEvent(screenPos.X, screenPos.Y, game)
                             end
-                            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
 
-                            -- 3. Выстрел
-                            if Combat.Config.AutoShot then
-                                if Combat.Config.AutoEquipGun then
-                                    local tool = char:FindFirstChildOfClass("Tool")
-                                    if not tool or tool.Name ~= "Gun" then
-                                        local backpack = LocalPlayer:FindFirstChild("Backpack")
-                                        local gun = backpack and backpack:FindFirstChild("Gun")
-                                        if gun then char:FindFirstChildOfClass("Humanoid"):EquipTool(gun) end
+                            -- 3. Авто-экипировка оружия
+                            if Combat.Config.AutoEquipGun then
+                                local currentTool = char:FindFirstChildOfClass("Tool")
+                                if not currentTool or (currentTool.Name ~= "Gun" and not currentTool:FindFirstChild("Gun")) then
+                                    local backpack = LocalPlayer:FindFirstChild("Backpack")
+                                    local gun = backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChildOfClass("Tool"))
+                                    if gun then
+                                        char:FindFirstChildOfClass("Humanoid"):EquipTool(gun)
                                     end
                                 end
-                                local remote = getShootRemote()
-                                if remote then
-                                    remote:FireServer(targetPos)
-                                else
-                                    SimulateClick()
+                            end
+
+                            -- 4. Авто-выстрел
+                            if Combat.Config.AutoShot then
+                                local tool = char:FindFirstChildOfClass("Tool")
+                                if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
+                                    -- Попробуем найти RemoteEvent в оружии или ReplicatedStorage
+                                    local remote = tool:FindFirstChildOfClass("RemoteEvent") or ReplicatedStorage:FindFirstChild("ShootGun") or ReplicatedStorage:FindFirstChild("Shoot")
+                                    if remote and remote:IsA("RemoteEvent") then
+                                        remote:FireServer(mHead.Position)
+                                    else
+                                        -- Обычный клик мыши (теперь работает благодаря наведению)
+                                        SimulateClick()
+                                    end
                                 end
                             end
                         end
                     end
                 else
-                    -- Стандартные режимы
+                    -- Стандартные режимы (Static, Dynamic, Smooth)
                     local target = GetAimTarget()
                     local targetPos = target and target.Position
                     if targetPos and Combat.Config.Prediction > 0 then
@@ -364,8 +346,8 @@ task.spawn(function()
                     if Combat.Config.AutoShot and targetPos then
                         local tool = char:FindFirstChildOfClass("Tool")
                         if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-                            local remote = getShootRemote()
-                            if remote then
+                            local remote = tool:FindFirstChildOfClass("RemoteEvent") or ReplicatedStorage:FindFirstChild("ShootGun") or ReplicatedStorage:FindFirstChild("Shoot")
+                            if remote and remote:IsA("RemoteEvent") then
                                 remote:FireServer(targetPos)
                             else
                                 SimulateClick()
@@ -391,7 +373,7 @@ task.spawn(function()
                 end
             end
 
-            -- Авто-экипировка (не Hacker)
+            -- Авто-экипировка (для не-Hacker режимов)
             if Combat.Config.AutoEquipGun and Combat.Config.AimMode ~= "Hacker" then
                 local currentTool = char:FindFirstChildOfClass("Tool")
                 if not currentTool or currentTool.Name ~= "Gun" then
