@@ -1,4 +1,4 @@
--- [[ MM2 VISUALS MODULE – Fixed & Polished ]] --
+-- [[ MM2 VISUALS MODULE – Enhanced GunESP with Events ]] --
 local Visuals = {}
 
 local Players = game:GetService("Players")
@@ -102,38 +102,66 @@ local function GetColor(role)
     else return Color3.fromRGB(30, 255, 30) end
 end
 
--- Функция поиска ВЫПАВШЕГО пистолета (игнорирует оружие в руках игроков)
-local function FindGunDrop()
-    -- 1. Быстрый поиск по прямым детям Workspace
-    for _, child in ipairs(Workspace:GetChildren()) do
-        if child:IsA("Model") and child.Name == "GunDrop" then
-            if not child:IsDescendantOf(Players) then
-                return child
-            end
-        elseif child:IsA("Tool") and (child.Name == "Gun" or child.Name:lower():find("gun")) then
-            if not child:IsDescendantOf(Players) then
-                return child
-            end
-        end
-    end
+-- ====================== GUN ESP (улучшенный) ======================
+local currentGunHighlight = nil
+local currentGunBillboard = nil
 
-    -- 2. Глубокий поиск по всем потомкам (исключая Players)
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj.Name == "GunDrop" then
-            if not obj:IsDescendantOf(Players) then
-                return obj
-            end
-        elseif obj:IsA("Tool") and (obj.Name == "Gun" or obj.Name:lower():find("gun")) then
-            if not obj:IsDescendantOf(Players) then
-                return obj
-            end
-        end
-    end
-
-    return nil
+local function removeGunESP()
+    if currentGunHighlight then currentGunHighlight:Destroy(); currentGunHighlight = nil end
+    if currentGunBillboard then currentGunBillboard:Destroy(); currentGunBillboard = nil end
 end
 
--- Главный защищенный цикл
+local function applyGunESP()
+    removeGunESP()
+    if not Visuals.Config.GunESP then return end
+
+    local gunDrop = Workspace:FindFirstChild("GunDrop")
+    if gunDrop and gunDrop:IsA("Model") then
+        -- Золотая подсветка оружия
+        currentGunHighlight = Instance.new("Highlight")
+        currentGunHighlight.Name = "PF_GunHighlight"
+        currentGunHighlight.FillColor = Color3.fromRGB(255, 215, 0)
+        currentGunHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        currentGunHighlight.FillTransparency = 0.2
+        currentGunHighlight.OutlineTransparency = 0
+        currentGunHighlight.Parent = gunDrop
+
+        -- Текстовый маркер над пистолетом
+        currentGunBillboard = Instance.new("BillboardGui")
+        currentGunBillboard.Name = "PF_GunText"
+        currentGunBillboard.Adornee = gunDrop
+        currentGunBillboard.Size = UDim2.new(0, 120, 0, 30)
+        currentGunBillboard.StudsOffset = Vector3.new(0, 2.5, 0)
+        currentGunBillboard.AlwaysOnTop = true
+
+        local label = Instance.new("TextLabel", currentGunBillboard)
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Text = "🔫 GUN HERE"
+        label.TextColor3 = Color3.fromRGB(255, 215, 0)
+        label.Font = Enum.Font.GothamBlack
+        label.TextSize = 16
+        label.TextStrokeTransparency = 0
+
+        currentGunBillboard.Parent = gunDrop
+    end
+end
+
+-- События появления/исчезновения GunDrop
+Workspace.ChildAdded:Connect(function(child)
+    if child.Name == "GunDrop" and Visuals.Config.GunESP then
+        task.wait(0.1)
+        applyGunESP()
+    end
+end)
+
+Workspace.ChildRemoved:Connect(function(child)
+    if child.Name == "GunDrop" then
+        removeGunESP()
+    end
+end)
+
+-- ====================== ГЛАВНЫЙ ЦИКЛ ======================
 task.spawn(function()
     while task.wait(0.1) do
         pcall(function()
@@ -262,36 +290,9 @@ task.spawn(function()
                 AliveFrame.Text = "🔪 Живых игроков: " .. aliveCount
             end
 
-            -- Gun ESP (Исправленный поиск)
-            local gunDrop = FindGunDrop()
-            if gunDrop then
-                local targetPart = gunDrop:IsA("Model") and gunDrop.PrimaryPart or gunDrop
-                if not targetPart and gunDrop:IsA("Model") then
-                    targetPart = gunDrop:FindFirstChildWhichIsA("BasePart")
-                end
-
-                if targetPart then
-                    local gunTag = targetPart:FindFirstChild("PF_GunTag")
-                    if Visuals.Config.GunESP then
-                        if not gunTag then
-                            gunTag = Instance.new("BillboardGui", targetPart)
-                            gunTag.Name = "PF_GunTag"
-                            gunTag.AlwaysOnTop = true
-                            gunTag.Size = UDim2.new(0, 200, 0, 40)
-                            gunTag.StudsOffset = Vector3.new(0, 2, 0)
-                            local lbl = Instance.new("TextLabel", gunTag)
-                            lbl.Size = UDim2.new(1, 0, 1, 0)
-                            lbl.BackgroundTransparency = 1
-                            lbl.Font = Enum.Font.GothamBold
-                            lbl.Text = "🔫 ПИСТОЛЕТ ЗДЕСЬ!"
-                            lbl.TextColor3 = Color3.fromRGB(255, 215, 0)
-                            lbl.TextSize = 16
-                            lbl.TextStrokeTransparency = 0
-                        end
-                    else
-                        if gunTag then gunTag:Destroy() end
-                    end
-                end
+            -- Gun ESP теперь управляется событиями, здесь только проверка на случай, если объект уже есть, а тоггл только что включили (на всякий случай)
+            if Visuals.Config.GunESP and not currentGunHighlight then
+                applyGunESP()
             end
         end)
     end
@@ -365,7 +366,18 @@ function Visuals.Init(GlobalConfig, UI, Lang)
     VisTab:AddNumberInput({ Title = text.TextSize, Min = 10, Max = 24, Default = Visuals.Config.ESP_TextSize, Callback = function(v) Visuals.Config.ESP_TextSize = v end })
 
     VisTab:AddSection(text.SecTrack)
-    VisTab:AddToggle({ Title = text.GunESP, Default = Visuals.Config.GunESP, Callback = function(s) Visuals.Config.GunESP = s end })
+    VisTab:AddToggle({
+        Title = text.GunESP,
+        Default = Visuals.Config.GunESP,
+        Callback = function(s)
+            Visuals.Config.GunESP = s
+            if s then
+                applyGunESP()
+            else
+                removeGunESP()
+            end
+        end
+    })
     VisTab:AddToggle({ Title = text.CoinESP, Default = false, Callback = function(s) end })
 
     VisTab:AddSection(text.SecHUD)
