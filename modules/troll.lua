@@ -1,15 +1,26 @@
--- [[ MM2 TROLL MODULE – Fling & Fun ]] --
+-- [[ MM2 TROLL MODULE – WORKING FLING (Teleport + Spin) ]] --
 local Troll = {}
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
--- ================== Helpers ==================
+-- ================== Помощники ==================
 
--- Найти любого игрока с ножом (мёрдера)
+-- Получить позицию корневой части локального игрока (безопасно)
+local function GetLocalRootPos()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    return root and root.Position
+end
+
+-- Найти мёрдера (ближайшего с ножом)
 local function FindMurderer()
+    local myPos = GetLocalRootPos()
+    if not myPos then return nil end
+
     local closest = nil
     local minDist = math.huge
     for _, player in pairs(Players:GetPlayers()) do
@@ -17,7 +28,8 @@ local function FindMurderer()
             local hasKnife = player.Character:FindFirstChild("Knife")
                 or (player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Knife"))
             if hasKnife and player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
-                local dist = (player.Character.HumanoidRootPart.Position - LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position or Vector3.zero).Magnitude
+                local pos = player.Character.HumanoidRootPart.Position
+                local dist = (pos - myPos).Magnitude
                 if dist < minDist then
                     minDist = dist
                     closest = player
@@ -28,33 +40,57 @@ local function FindMurderer()
     return closest
 end
 
--- Найти шерифа (игрок с пистолетом)
+-- Найти шерифа (любого с пистолетом)
 local function FindSheriff()
+    local myPos = GetLocalRootPos()
+    if not myPos then return nil end
+
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
             local hasGun = player.Character:FindFirstChild("Gun")
                 or (player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Gun"))
             if hasGun and player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
-                return player
+                return player  -- первого попавшегося
             end
         end
     end
     return nil
 end
 
--- Универсальная функция флинга (подкидывает персонаж)
-local function FlingPlayer(player)
-    if not player or not player.Character then return end
-    local root = player.Character:FindFirstChild("HumanoidRootPart")
-    if not root then return end
+-- ================== Флинг (основная логика) ==================
+local function FlingPlayer(targetPlayer)
+    if not targetPlayer then return end
+    local char = targetPlayer.Character
+    if not char then return end
+    local targetRoot = char:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then return end
 
-    -- Прикладываем мощный вертикальный импульс
-    local bodyVel = Instance.new("BodyVelocity")
-    bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-    bodyVel.Velocity = Vector3.new(math.random(-2000, 2000), 10000, math.random(-2000, 2000))
-    bodyVel.P = 1e5
-    bodyVel.Parent = root
-    Debris:AddItem(bodyVel, 0.15)   -- удалится через 0.15 сек, игрок уже в полёте
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    -- 1. Телепортируемся прямо в позицию цели
+    myRoot.CFrame = targetRoot.CFrame + Vector3.new(0, 1, 0)  -- чуть выше
+
+    -- 2. Быстро вращаемся внутри цели, создавая толкающий эффект
+    local duration = 0.3  -- секунд
+    local startTime = tick()
+    local connection
+    connection = RunService.Stepped:Connect(function(_, deltaTime)
+        if tick() - startTime > duration then
+            connection:Disconnect()
+            return
+        end
+        -- Проверяем, что оба живы
+        if not myRoot or not myRoot.Parent or not targetRoot or not targetRoot.Parent then
+            connection:Disconnect()
+            return
+        end
+        -- Вращаем свою root‑часть на 15° за шаг (быстрое кручение)
+        myRoot.CFrame = targetRoot.CFrame * CFrame.Angles(0, math.rad(15 * deltaTime * 60), 0)
+            + Vector3.new(0, 0.5, 0)   -- остаёмся внутри цели
+    end)
 end
 
 -- ================== Публичные методы ==================
@@ -99,7 +135,6 @@ function Troll.Init(GlobalConfig, UI, Lang)
     local text = T[Lang] or T.RU
 
     local TrollTab = UI:CreateTab(text.TabName)
-
     TrollTab:AddButton(text.FlingSheriff, Troll.FlingSheriff)
     TrollTab:AddButton(text.FlingMurderer, Troll.FlingMurderer)
     TrollTab:AddButton(text.FlingAll, Troll.FlingAll)
