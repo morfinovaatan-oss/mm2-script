@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – ULTIMATE FIX (AUTO PICKUP, HACKER MODE, KEYBINDS) ]] --
+-- [[ MM2 COMBAT MODULE – ENHANCED (Find keys + Auto pickup notification) ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -8,6 +8,7 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
+local StarterGui = game:GetService("StarterGui")
 
 Combat.Config = {
     AimEnabled = false,
@@ -26,9 +27,10 @@ Combat.Config = {
     AntiAim = false,
     FakeLag = false,
 
-    -- Keybinds (customizable)
-    ShootKey = Enum.KeyCode.C,
-    PickupKey = Enum.KeyCode.R,
+    -- Клавиши для поиска ролей (как в примере)
+    FindMurdererKey = Enum.KeyCode.Z,
+    FindSheriffKey = Enum.KeyCode.X,
+    AutoNotifyPickup = true,   -- показывать уведомление и телепортировать пистолет
 }
 
 -- ================== FOV Circle GUI ==================
@@ -50,7 +52,6 @@ FOVStroke.Color = Color3.fromRGB(160, 32, 240)
 
 -- ================== Helpers ==================
 local function SimulateClick()
-    -- Используем VirtualInputManager для надёжного клика
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
     task.wait(0.02)
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
@@ -91,6 +92,19 @@ local function FindMurderer()
     return closest
 end
 
+local function FindSheriff()
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local hasGun = p.Character:FindFirstChild("Gun") or (p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Gun"))
+            local hasRevolver = p.Character:FindFirstChild("Revolver") or (p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Revolver"))
+            if (hasGun or hasRevolver) and p.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+                return p
+            end
+        end
+    end
+    return nil
+end
+
 local function GetAimTarget()
     local mousePos = UserInputService:GetMouseLocation()
     local best = nil
@@ -121,87 +135,76 @@ local function SmoothAim(targetPos, speed)
     Camera.CFrame = current:Lerp(desired, speed)
 end
 
--- ================== Улучшенный подбор пистолета ==================
-local function IsToolHeldByAnyPlayer(tool)
-    -- Возвращает true, если инструмент находится у любого игрока (в Character или Backpack)
-    for _, player in pairs(Players:GetPlayers()) do
-        local char = player.Character
-        if char and (tool.Parent == char or tool:IsDescendantOf(char)) then
-            return true
-        end
-        local backpack = player:FindFirstChild("Backpack")
-        if backpack and (tool.Parent == backpack or tool:IsDescendantOf(backpack)) then
-            return true
-        end
-    end
-    return false
-end
-
-local function PickupGun()
-    local char = LocalPlayer.Character
-    if not char then return false end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return false end
-
-    local pickedUp = false
-
-    -- Способ 1: Ищем выпавший инструмент (Tool) напрямую в Workspace и папках
-    for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("Tool") and (obj.Name == "Gun" or obj.Name:lower():find("gun")) then
-            local handle = obj:FindFirstChild("Handle")
-            if handle and handle:IsA("BasePart") then
-                -- Проверяем, что пистолет не находится у игрока (не в Character и не в Backpack)
-                if not IsToolHeldByAnyPlayer(obj) then
-                    local dist = (handle.Position - root.Position).Magnitude
-                    if dist < 25 or Combat.Config.InfinitePickup then
-                        handle.CanCollide = true
-                        handle.CFrame = root.CFrame + Vector3.new(0, 1.5, 0)
-                        task.wait(0.01)
-                        firetouchinterest(root, handle, 0)
-                        firetouchinterest(root, handle, 1)
-                        pickedUp = true
-                        break
-                    end
+-- ================== Уведомление и телепорт пистолета ==================
+local function HandleGunDropNotification(child)
+    if not Combat.Config.AutoNotifyPickup then return end
+    if child.Name == "GunDrop" then
+        local cb = Instance.new("BindableFunction")
+        cb.OnInvoke = function(arg)
+            if arg == "Get gun!" and child.Parent then
+                local char = LocalPlayer.Character
+                if char and char:FindFirstChild("Head") then
+                    child.CFrame = CFrame.new(char.Head.Position)
                 end
             end
         end
+        StarterGui:SetCore("SendNotification", {
+            Title = "The sheriff has died!",
+            Text = "Grab their gun?",
+            Duration = 5,
+            Button1 = "Dismiss",
+            Button2 = "Get gun!",
+            Callback = cb
+        })
     end
-
-    if pickedUp then return true end
-
-    -- Способ 2: Ищем модель GunDrop (старый формат, если используется)
-    for _, drop in pairs(Workspace:GetDescendants()) do
-        if drop:IsA("Model") and drop.Name == "GunDrop" then
-            local tool = drop:FindFirstChildOfClass("Tool")
-            if tool and (tool.Name == "Gun" or tool.Name:lower():find("gun")) then
-                local handle = tool:FindFirstChild("Handle")
-                if handle and handle:IsA("BasePart") then
-                    local dist = (handle.Position - root.Position).Magnitude
-                    if dist < 25 or Combat.Config.InfinitePickup then
-                        handle.CanCollide = true
-                        handle.CFrame = root.CFrame + Vector3.new(0, 1.5, 0)
-                        task.wait(0.01)
-                        firetouchinterest(root, handle, 0)
-                        firetouchinterest(root, handle, 1)
-                        return true
-                    end
-                end
-            end
-        end
-    end
-
-    return false
 end
+
+-- Подключение: при добавлении объекта в Workspace
+Workspace.ChildAdded:Connect(HandleGunDropNotification)
 
 -- ================== Main Loop ==================
 task.spawn(function()
-    -- Обработчик клавиш
+    -- Клавиши для поиска ролей (как в примере)
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
-        if input.KeyCode == Combat.Config.ShootKey then
-            SimulateClick()
-        elseif input.KeyCode == Combat.Config.PickupKey then
-            PickupGun()
+        if input.KeyCode == Combat.Config.FindSheriffKey then
+            local sheriff = FindSheriff()
+            if sheriff then
+                local userId = Players:GetUserIdFromNameAsync(sheriff.Name)
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Sheriff",
+                    Text = "Their name is " .. sheriff.Name .. "!",
+                    Icon = "https://web.roblox.com/Thumbs/Avatar.ashx?x=100&y=100&Format=Png&userid=" .. userId,
+                    Duration = 5,
+                    Button1 = "Dismiss",
+                })
+            else
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Sheriff",
+                    Text = "No sheriff could be found!",
+                    Duration = 5,
+                    Button1 = "Dismiss",
+                })
+            end
+        elseif input.KeyCode == Combat.Config.FindMurdererKey then
+            local murderer = FindMurderer()
+            if murderer then
+                local userId = Players:GetUserIdFromNameAsync(murderer.Name)
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Murderer",
+                    Text = "Their name is " .. murderer.Name .. "!",
+                    Icon = "https://web.roblox.com/Thumbs/Avatar.ashx?x=100&y=100&Format=Png&userid=" .. userId,
+                    Duration = 5,
+                    Button1 = "Dismiss",
+                })
+            else
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Murderer",
+                    Text = "No murderer could be found!",
+                    Duration = 5,
+                    Button1 = "Dismiss",
+                })
+            end
         end
     end)
 
@@ -218,7 +221,7 @@ task.spawn(function()
             FOVStroke.Transparency = Combat.Config.FOVTransparency
             FOVFrame.Visible = Combat.Config.AimEnabled
 
-            -- ============== АИМБОТ ==============
+            -- ============== АИМБОТ (включая Hacker) ==============
             if Combat.Config.AimEnabled then
                 if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
                     local murderer = FindMurderer()
@@ -288,9 +291,27 @@ task.spawn(function()
                 end
             end
 
-            -- ============== АВТО-ПОДБОР ПИСТОЛЕТА (ИСПРАВЛЕНО) ==============
+            -- ============== АВТО-ПОДБОР (старый метод остаётся как запасной) ==============
+            -- Оставлен без изменений, но новый способ через уведомление уже работает.
             if Combat.Config.AutoPickGun then
-                PickupGun()
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if root then
+                    for _, obj in pairs(Workspace:GetDescendants()) do
+                        if obj:IsA("Tool") and (obj.Name == "Gun" or obj.Name:lower():find("gun")) then
+                            local handle = obj:FindFirstChild("Handle")
+                            if handle and handle:IsA("BasePart") then
+                                local dist = (handle.Position - root.Position).Magnitude
+                                if dist < 25 or Combat.Config.InfinitePickup then
+                                    handle.CFrame = root.CFrame + Vector3.new(0, 1.5, 0)
+                                    task.wait(0.01)
+                                    firetouchinterest(root, handle, 0)
+                                    firetouchinterest(root, handle, 1)
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
             end
 
             -- ============== ONE TAP KNIFE ==============
@@ -348,14 +369,14 @@ function Combat.Init(GlobalConfig, UI, Lang)
             Trigger = "Триггер-бот",
 
             SecKeys = "Горячие клавиши",
-            ShootKey = "Выстрел",
-            PickupKey = "Подобрать пистолет",
-            CurrentKey = "Текущая:",
+            FindMurdererKey = "Найти мёрдера",
+            FindSheriffKey = "Найти шерифа",
 
             SecAuto = "Автоматизация",
             AutoEquip = "Авто-экипировка",
             AutoShot = "Авто-выстрел",
             AutoPick = "Авто-подбор",
+            AutoNotifyPickup = "Уведомление о пистолете",
             InfPickup = "Беск. подбор",
             OneTap = "One Tap Knife",
 
@@ -376,14 +397,14 @@ function Combat.Init(GlobalConfig, UI, Lang)
             Trigger = "Triggerbot",
 
             SecKeys = "Keybinds",
-            ShootKey = "Shoot",
-            PickupKey = "Pickup Gun",
-            CurrentKey = "Current:",
+            FindMurdererKey = "Find Murderer",
+            FindSheriffKey = "Find Sheriff",
 
             SecAuto = "Automation",
             AutoEquip = "Auto-Equip",
             AutoShot = "Auto-Shot",
             AutoPick = "Auto-Pick",
+            AutoNotifyPickup = "Notify gun drop",
             InfPickup = "Infinite Pickup",
             OneTap = "One Tap Knife",
 
@@ -414,37 +435,37 @@ function Combat.Init(GlobalConfig, UI, Lang)
 
     -- Keybinds Section
     tab:AddSection(text.SecKeys)
-    local shootLabel = tab:AddLabel(text.ShootKey .. " : " .. tostring(Combat.Config.ShootKey):gsub("Enum.KeyCode.", ""))
-    tab:AddButton(text.ShootKey .. " (нажмите для смены)", function()
-        local oldKey = Combat.Config.ShootKey
-        shootLabel.Text = text.ShootKey .. " : ... (ожидание)"
+    local murderLabel = tab:AddLabel(text.FindMurdererKey .. " : " .. tostring(Combat.Config.FindMurdererKey):gsub("Enum.KeyCode.", ""))
+    tab:AddButton(text.FindMurdererKey .. " (нажмите для смены)", function()
+        local oldKey = Combat.Config.FindMurdererKey
+        murderLabel.Text = text.FindMurdererKey .. " : ... (ожидание)"
         local conn
         conn = UserInputService.InputBegan:Connect(function(input, gp)
             if gp then return end
             conn:Disconnect()
-            Combat.Config.ShootKey = input.KeyCode
-            shootLabel.Text = text.ShootKey .. " : " .. tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
+            Combat.Config.FindMurdererKey = input.KeyCode
+            murderLabel.Text = text.FindMurdererKey .. " : " .. tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
         end)
         task.wait(3)
-        if Combat.Config.ShootKey == oldKey then
-            shootLabel.Text = text.ShootKey .. " : " .. tostring(oldKey):gsub("Enum.KeyCode.", "")
+        if Combat.Config.FindMurdererKey == oldKey then
+            murderLabel.Text = text.FindMurdererKey .. " : " .. tostring(oldKey):gsub("Enum.KeyCode.", "")
         end
     end)
 
-    local pickupLabel = tab:AddLabel(text.PickupKey .. " : " .. tostring(Combat.Config.PickupKey):gsub("Enum.KeyCode.", ""))
-    tab:AddButton(text.PickupKey .. " (нажмите для смены)", function()
-        local oldKey = Combat.Config.PickupKey
-        pickupLabel.Text = text.PickupKey .. " : ... (ожидание)"
+    local sheriffLabel = tab:AddLabel(text.FindSheriffKey .. " : " .. tostring(Combat.Config.FindSheriffKey):gsub("Enum.KeyCode.", ""))
+    tab:AddButton(text.FindSheriffKey .. " (нажмите для смены)", function()
+        local oldKey = Combat.Config.FindSheriffKey
+        sheriffLabel.Text = text.FindSheriffKey .. " : ... (ожидание)"
         local conn
         conn = UserInputService.InputBegan:Connect(function(input, gp)
             if gp then return end
             conn:Disconnect()
-            Combat.Config.PickupKey = input.KeyCode
-            pickupLabel.Text = text.PickupKey .. " : " .. tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
+            Combat.Config.FindSheriffKey = input.KeyCode
+            sheriffLabel.Text = text.FindSheriffKey .. " : " .. tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
         end)
         task.wait(3)
-        if Combat.Config.PickupKey == oldKey then
-            pickupLabel.Text = text.PickupKey .. " : " .. tostring(oldKey):gsub("Enum.KeyCode.", "")
+        if Combat.Config.FindSheriffKey == oldKey then
+            sheriffLabel.Text = text.FindSheriffKey .. " : " .. tostring(oldKey):gsub("Enum.KeyCode.", "")
         end
     end)
 
@@ -453,6 +474,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
     tab:AddToggle({ Title = text.AutoEquip, Default = false, Callback = function(s) Combat.Config.AutoEquipGun = s end })
     tab:AddToggle({ Title = text.AutoShot, Default = false, Callback = function(s) Combat.Config.AutoShot = s end })
     tab:AddToggle({ Title = text.AutoPick, Default = false, Callback = function(s) Combat.Config.AutoPickGun = s end })
+    tab:AddToggle({ Title = text.AutoNotifyPickup, Default = true, Callback = function(s) Combat.Config.AutoNotifyPickup = s end })
     tab:AddToggle({ Title = text.InfPickup, Default = false, Callback = function(s) Combat.Config.InfinitePickup = s end })
     tab:AddToggle({ Title = text.OneTap, Default = false, Callback = function(s) Combat.Config.OneTapKnife = s end })
 
