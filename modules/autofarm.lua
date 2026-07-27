@@ -1,13 +1,11 @@
--- [[ MM2 ULTRA-FAST AUTO-FARM – No Pauses, Auto Start, Infinite Radius ]] --
+-- [[ MM2 RELIABLE ULTRA-FAST AUTO-FARM – Final Working Version ]] --
 local Autofarm = {}
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-local StarterGui = game:GetService("StarterGui")
 
--- Настройки
 Autofarm.Config = {
     Enabled = false,
     WalkSpeed = 30,
@@ -15,21 +13,21 @@ Autofarm.Config = {
     AvoidMurderer = true,
     AvoidDistance = 50,
     FlyHeightOffset = -2.5,
-    CollectionThreshold = 4.5,   -- расстояние, при котором монета считается собранной
-    AutoStart = true,            -- автоматический старт при появлении монет и начале раунда
+    CollectionThreshold = 4.5,
+    AutoStart = true,
 }
 
--- Внутренние переменные
+-- Octree
 local octree = nil
 local touchedCoins = {}
 local activeConnections = {}
 local farming = false
 local coinContainer = nil
-local lastAvoidPosition = nil
-local avoidReturnTime = 0
 local avoidActive = false
+local avoidReturnTime = 0
+local lastAvoidPosition = nil
 
--- ================== Загрузка Octree ==================
+-- ================== Octree Loader ==================
 local function loadOctree()
     if octree then return true end
     local ok, result = pcall(function()
@@ -42,7 +40,7 @@ local function loadOctree()
     return true
 end
 
--- ================== Помощники ==================
+-- ================== Helpers ==================
 local function getMap()
     for _, v in ipairs(Workspace:GetDescendants()) do
         if v.Name == "Spawns" and v.Parent.Name ~= "Lobby" then
@@ -58,15 +56,13 @@ local function getCoinContainer()
 end
 
 local function isRoundActive()
-    -- Проверяем, что игрок в раунде (атрибут Alive или таймер на экране)
     if LocalPlayer:GetAttribute("Alive") then return true end
     local gui = LocalPlayer.PlayerGui:FindFirstChild("MainGUI")
-    if gui and gui:FindFirstChild("Game") then
-        if gui.Game:FindFirstChild("Timer") and gui.Game.Timer.Visible then
-            return true
-        end
-        if gui.Game:FindFirstChild("EarnedXP") and gui.Game.EarnedXP.Visible then
-            return true
+    if gui then
+        local game = gui:FindFirstChild("Game")
+        if game then
+            if game:FindFirstChild("Timer") and game.Timer.Visible then return true end
+            if game:FindFirstChild("EarnedXP") and game.EarnedXP.Visible then return true end
         end
     end
     return false
@@ -111,7 +107,7 @@ local function getRandomSafePosition()
     return CFrame.new(-120, 135, 46)
 end
 
--- ================== Управление Octree ==================
+-- ================== Octree Management ==================
 local function clearOctreeConnections()
     for _, conn in pairs(activeConnections) do
         if conn and conn.Connected then conn:Disconnect() end
@@ -140,8 +136,7 @@ end
 
 local function addCoinToOctree(coin)
     if not octree or touchedCoins[coin] then return end
-    local existing = octree:FindFirstNode(coin)
-    if not existing then
+    if not octree:FindFirstNode(coin) then
         octree:CreateNode(coin.Position, coin)
         setupCoinTracking(coin)
     end
@@ -150,9 +145,7 @@ end
 local function removeCoinFromOctree(coin)
     if not octree then return end
     local node = octree:FindFirstNode(coin)
-    if node then
-        octree:RemoveNode(node)
-    end
+    if node then octree:RemoveNode(node) end
     touchedCoins[coin] = true
 end
 
@@ -162,11 +155,9 @@ local function populateOctree()
     table.clear(touchedCoins)
     for _, desc in ipairs(coinContainer:GetDescendants()) do
         if desc:IsA("TouchTransmitter") then
-            local coin = desc.Parent
-            addCoinToOctree(coin)
+            addCoinToOctree(desc.Parent)
         end
     end
-
     clearOctreeConnections()
     local addConn = coinContainer.DescendantAdded:Connect(function(desc)
         if desc:IsA("TouchTransmitter") then
@@ -182,7 +173,7 @@ local function populateOctree()
     activeConnections[removeConn] = true
 end
 
--- ================== Движение без остановок ==================
+-- ================== Movement ==================
 local function getNextCoinPosition()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
@@ -220,9 +211,8 @@ local function avoidMurderer()
             return true
         end
     end
-    -- Возврат через 4 секунды
     if avoidActive and tick() >= avoidReturnTime then
-        if lastAvoidPosition and char and char:FindFirstChild("HumanoidRootPart") then
+        if lastAvoidPosition and char:FindFirstChild("HumanoidRootPart") then
             char:PivotTo(lastAvoidPosition)
         end
         avoidActive = false
@@ -233,16 +223,14 @@ end
 local function resetCharacter()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChildOfClass("Humanoid") then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    hum.Health = 0
+    char:FindFirstChildOfClass("Humanoid").Health = 0
     repeat task.wait(0.5) until LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") and LocalPlayer.Character:FindFirstChildOfClass("Humanoid").Health > 0
     task.wait(1)
 end
 
--- ================== Главный цикл ==================
+-- ================== Farm Loop ==================
 local function farmLoop()
     while farming do
-        -- Если не в раунде, ждём
         if not isRoundActive() then
             task.wait(0.5)
             continue
@@ -255,11 +243,10 @@ local function farmLoop()
         end
         local root = char.HumanoidRootPart
 
-        -- Проверка полного мешка
+        -- Full bag check
         if isBagFull() then
             if Autofarm.Config.ResetAfterFullBag then
                 resetCharacter()
-                -- После воскрешения Octree обновится, но farming остаётся true, продолжаем
             else
                 Autofarm.Config.Enabled = false
                 farming = false
@@ -267,33 +254,32 @@ local function farmLoop()
             end
         end
 
-        -- Избегание мёрдера (может телепортировать и активировать таймер)
+        -- Avoid murderer
         avoidMurderer()
 
-        -- Если активно избегание, стоим на месте до истечения таймера
+        -- If avoid is active, wait
         if avoidActive and tick() < avoidReturnTime then
             task.wait(0.1)
             continue
         elseif avoidActive then
-            -- возврат уже произошёл в avoidMurderer, сбрасываем
             avoidActive = false
         end
 
-        -- Получаем ближайшую монету
+        -- Get nearest coin
         local targetPos, coin, dist = getNextCoinPosition()
         if not targetPos or not coin then
             task.wait(0.2)
             continue
         end
 
-        -- Движение к монете
+        -- Move towards coin
         local moveDir = (targetPos - root.Position).Unit
         local moveStep = Autofarm.Config.WalkSpeed * 0.05
         local newPos = root.Position + moveDir * moveStep
         local lookAt = CFrame.new(newPos, newPos + moveDir)
         char:PivotTo(lookAt)
 
-        -- Если достаточно близко, помечаем монету собранной и переходим к следующей
+        -- Mark collected if close enough
         if dist <= Autofarm.Config.CollectionThreshold then
             touchedCoins[coin] = true
             if octree then
@@ -305,11 +291,12 @@ local function farmLoop()
         task.wait(0.05)
     end
 
-    -- Остановка: очистка ресурсов
+    -- Cleanup on stop
     clearOctreeConnections()
     if octree then octree:ClearAllNodes() end
 end
 
+-- ================== Start/Stop ==================
 local function startFarming()
     if farming then return end
     if not loadOctree() then return end
@@ -327,9 +314,7 @@ local function stopFarming()
     if octree then octree:ClearAllNodes() end
 end
 
--- ================== Автостарт ==================
--- Если включён AutoStart, при включении тоггла начинаем мониторинг условий
--- и автоматически запускаем фарм, когда появляется возможность.
+-- ================== AutoStart ==================
 local autoStartConnection = nil
 local function setupAutoStart()
     if autoStartConnection then autoStartConnection:Disconnect() end
@@ -340,7 +325,7 @@ local function setupAutoStart()
         if not Autofarm.Config.Enabled then return end
         if not isRoundActive() then return end
         if not getCoinContainer() then return end
-        -- Проверим, есть ли монеты
+        -- Check if any coin exists
         if getNextCoinPosition() then
             startFarming()
         end
@@ -372,13 +357,12 @@ function Autofarm.Init(GlobalConfig, UI, Lang)
     local text = T[Lang] or T.RU
     local FarmTab = UI:CreateTab(text.TabName)
 
-    local enableToggle = FarmTab:AddToggle({
+    FarmTab:AddToggle({
         Title = text.Enable,
         Default = false,
         Callback = function(val)
             Autofarm.Config.Enabled = val
             if val then
-                -- Если включён AutoStart, запустим мониторинг, иначе начнём сразу (если возможно)
                 if Autofarm.Config.AutoStart then
                     setupAutoStart()
                 else
