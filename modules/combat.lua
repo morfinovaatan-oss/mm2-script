@@ -255,12 +255,77 @@ local function getShootRemote()
     return nil
 end
 
+-- ================== Hacker TP Kill Logic ==================
+local tpKillCooldown = false
+
+local function ExecuteHackerShot()
+    if tpKillCooldown then return end
+    
+    local char = LocalPlayer.Character
+    local myRoot = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local murderer = FindMurderer()
+    
+    if myRoot and murderer and murderer.Character then
+        local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
+        local mHead = murderer.Character:FindFirstChild("Head") or mRoot
+        
+        if mRoot and mHead then
+            tpKillCooldown = true
+            
+            -- Авто-экипировка пистолета перед телепортом
+            if Combat.Config.AutoEquipGun then
+                local currentTool = char:FindFirstChildOfClass("Tool")
+                if not currentTool or (currentTool.Name ~= "Gun" and not currentTool:FindFirstChild("Gun")) then
+                    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack") or LocalPlayer:FindFirstChild("Backpack")
+                    local gun = backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChildOfClass("Tool"))
+                    if gun and hum then
+                        hum:EquipTool(gun)
+                    end
+                end
+            end
+            
+            local savedPos = myRoot.CFrame
+            
+            -- 1. Телепортируемся за спину мардеру
+            myRoot.CFrame = mRoot.CFrame * CFrame.new(0, 0, 3.5)
+            
+            -- 2. Ожидание такта физики для регистрации позиции сервером
+            RunService.Heartbeat:Wait()
+            
+            -- 3. Выстрел по точным координатам
+            local targetPos = mHead.Position
+            if Combat.Config.Prediction > 0 then
+                targetPos = targetPos + (mRoot.AssemblyLinearVelocity * (Combat.Config.Prediction / 1000))
+            end
+            
+            local remote = getShootRemote()
+            if remote then
+                remote:FireServer(targetPos, myRoot.Position)
+            else
+                SimulateClick()
+            end
+            
+            -- 4. Возврат на исходную позицию
+            myRoot.CFrame = savedPos
+            
+            task.delay(1, function()
+                tpKillCooldown = false
+            end)
+        end
+    end
+end
+
 -- ================== Input Connections ==================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
     if input.KeyCode == Combat.Config.ShootKey then
-        SimulateClick()
+        if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
+            ExecuteHackerShot()
+        else
+            SimulateClick()
+        end
     elseif input.KeyCode == Combat.Config.PickupKey then
         local map = getMap()
         local gunDrop = map and map:FindFirstChild("GunDrop")
@@ -344,36 +409,21 @@ RunService.RenderStepped:Connect(function()
     -- ================= АИМБОТ =================
     if Combat.Config.AimEnabled then
         if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
-            local murderer = FindMurderer()
-            if murderer and murderer.Character then
-                local mHead = murderer.Character:FindFirstChild("Head") or murderer.Character:FindFirstChild("HumanoidRootPart")
-                if mHead then
-                    local targetPos = mHead.Position
-                    local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
-                    if Combat.Config.Prediction > 0 and mRoot then
-                        targetPos = targetPos + (mRoot.AssemblyLinearVelocity * (Combat.Config.Prediction / 1000))
-                    end
-
-                    if Combat.Config.AutoEquipGun then
-                        local currentTool = char:FindFirstChildOfClass("Tool")
-                        if not currentTool or (currentTool.Name ~= "Gun" and not currentTool:FindFirstChild("Gun")) then
-                            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack") or LocalPlayer:FindFirstChild("Backpack")
-                            local gun = backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChildOfClass("Tool"))
-                            if gun and hum then
-                                hum:EquipTool(gun)
-                            end
+            -- Автоматический TP Kill через автовыстрел, если включен AutoShot
+            if Combat.Config.AutoShot then
+                ExecuteHackerShot()
+            else
+                -- Просто доворачиваем камеру/подготавливаем позицию, если автовыстрел выключен
+                local murderer = FindMurderer()
+                if murderer and murderer.Character then
+                    local mHead = murderer.Character:FindFirstChild("Head") or murderer.Character:FindFirstChild("HumanoidRootPart")
+                    if mHead then
+                        local targetPos = mHead.Position
+                        local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
+                        if Combat.Config.Prediction > 0 and mRoot then
+                            targetPos = targetPos + (mRoot.AssemblyLinearVelocity * (Combat.Config.Prediction / 1000))
                         end
-                    end
-
-                    Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-
-                    if Combat.Config.AutoShot then
-                        local remote = getShootRemote()
-                        if remote then
-                            remote:FireServer(targetPos, Camera.CFrame.Position)
-                        else
-                            SimulateClick()
-                        end
+                        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
                     end
                 end
             end
