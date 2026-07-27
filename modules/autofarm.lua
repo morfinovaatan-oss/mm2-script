@@ -1,11 +1,10 @@
--- [[ MM2 SIMPLE AUTO-FARM – Octree, Reset, Avoid Murderer (Return after 4s, Infinite Radius) ]] --
+-- [[ MM2 SIMPLE AUTO-FARM – Infinite Radius, Avoid Murderer & Return ]] --
 local Autofarm = {}
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-local StarterGui = game:GetService("StarterGui")
 
 -- Настройки
 Autofarm.Config = {
@@ -86,6 +85,7 @@ local function getRandomSafePosition()
             return children[math.random(#children)]:GetPivot()
         end
     end
+    -- Запасной вариант
     return CFrame.new(-120, 135, 46)
 end
 
@@ -142,6 +142,9 @@ local function startFarming()
     populateOctree()
     farming = true
 
+    local avoidReturnPos = nil
+    local avoidReturnTime = 0
+
     while farming and Autofarm.Config.Enabled do
         local char = LocalPlayer.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChildOfClass("Humanoid") or char:FindFirstChildOfClass("Humanoid").Health <= 0 then
@@ -149,21 +152,29 @@ local function startFarming()
             continue
         end
 
+        -- Возвращение на место после избегания
+        if avoidReturnPos and tick() >= avoidReturnTime then
+            if char then
+                char:PivotTo(avoidReturnPos)
+            end
+            avoidReturnPos = nil
+            avoidReturnTime = 0
+        end
+
         -- Избегание мёрдера
-        if Autofarm.Config.AvoidMurderer then
+        if Autofarm.Config.AvoidMurderer and not avoidReturnPos then
             local murderer = findMurderer()
             if murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") then
                 local dist = (char.HumanoidRootPart.Position - murderer.Character.HumanoidRootPart.Position).Magnitude
                 if dist < Autofarm.Config.AvoidDistance then
-                    local myPos = char:GetPivot()   -- запоминаем позицию перед побегом
+                    -- Запомнить позицию
+                    avoidReturnPos = char:GetPivot()
+                    -- Телепорт в безопасное место
                     local safePos = getRandomSafePosition()
                     if safePos then
                         char:PivotTo(safePos)
                     end
-                    task.wait(4)                    -- ждём 4 секунды
-                    if char and char:FindFirstChild("HumanoidRootPart") then
-                        char:PivotTo(myPos)         -- возвращаемся на исходную позицию
-                    end
+                    avoidReturnTime = tick() + 4  -- вернуться через 4 секунды
                     task.wait(0.5)
                     continue
                 end
@@ -185,9 +196,9 @@ local function startFarming()
             end
         end
 
-        -- Поиск и сбор монеты (бесконечный радиус)
+        -- Поиск и сбор монеты (радиус бесконечный – передаём math.huge)
         if octree then
-            local nearest = octree:GetNearest(char.HumanoidRootPart.Position, 5000, 1)   -- бесконечный радиус
+            local nearest = octree:GetNearest(char.HumanoidRootPart.Position, math.huge, 1)
             if nearest and #nearest > 0 then
                 local coin = nearest[1].Object
                 if not isCoinTouched(coin) then
