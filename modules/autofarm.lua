@@ -1,4 +1,4 @@
--- [[ MM2 SIMPLE AUTO-FARM – Octree, Reset & Avoid Murderer ]] --
+-- [[ MM2 SIMPLE AUTO-FARM – Octree, Reset, Avoid Murderer (Return after 4s, Infinite Radius) ]] --
 local Autofarm = {}
 
 local Players = game:GetService("Players")
@@ -10,7 +10,6 @@ local StarterGui = game:GetService("StarterGui")
 -- Настройки
 Autofarm.Config = {
     Enabled = false,
-    Radius = 120,
     WalkSpeed = 20,
     ResetAfterFullBag = true,   -- умереть и возродиться после полного мешка
     AvoidMurderer = true,       -- избегать мёрдера
@@ -80,7 +79,6 @@ local function findMurderer()
 end
 
 local function getRandomSafePosition()
-    -- Простой вариант: вернуться в зону спавна (первая точка SpawnLocation)
     local spawns = Workspace:FindFirstChild("Spawns", true)
     if spawns then
         local children = spawns:GetChildren()
@@ -88,7 +86,6 @@ local function getRandomSafePosition()
             return children[math.random(#children)]:GetPivot()
         end
     end
-    -- Запасной вариант: центр карты (примерные координаты MM2)
     return CFrame.new(-120, 135, 46)
 end
 
@@ -158,10 +155,14 @@ local function startFarming()
             if murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") then
                 local dist = (char.HumanoidRootPart.Position - murderer.Character.HumanoidRootPart.Position).Magnitude
                 if dist < Autofarm.Config.AvoidDistance then
-                    -- Телепортируемся в безопасное место
+                    local myPos = char:GetPivot()   -- запоминаем позицию перед побегом
                     local safePos = getRandomSafePosition()
                     if safePos then
                         char:PivotTo(safePos)
+                    end
+                    task.wait(4)                    -- ждём 4 секунды
+                    if char and char:FindFirstChild("HumanoidRootPart") then
+                        char:PivotTo(myPos)         -- возвращаемся на исходную позицию
                     end
                     task.wait(0.5)
                     continue
@@ -172,7 +173,6 @@ local function startFarming()
         -- Проверка заполнения мешка
         if isBagFull() then
             if Autofarm.Config.ResetAfterFullBag then
-                -- Умереть и возродиться
                 local hum = char:FindFirstChildOfClass("Humanoid")
                 if hum then
                     hum.Health = 0
@@ -180,15 +180,14 @@ local function startFarming()
                     task.wait(1)
                 end
             else
-                -- Просто остановить фарм
                 Autofarm.Config.Enabled = false
                 break
             end
         end
 
-        -- Поиск и сбор монеты
+        -- Поиск и сбор монеты (бесконечный радиус)
         if octree then
-            local nearest = octree:GetNearest(char.HumanoidRootPart.Position, Autofarm.Config.Radius, 1)
+            local nearest = octree:GetNearest(char.HumanoidRootPart.Position, 5000, 1)   -- бесконечный радиус
             if nearest and #nearest > 0 then
                 local coin = nearest[1].Object
                 if not isCoinTouched(coin) then
@@ -223,7 +222,6 @@ function Autofarm.Init(GlobalConfig, UI, Lang)
         RU = {
             TabName = "💰 Автофарм",
             Enable = "Включить автофарм",
-            Radius = "Радиус поиска",
             Speed = "Скорость движения",
             ResetAfter = "Ресет после полного мешка",
             Avoid = "Избегать мёрдера",
@@ -232,7 +230,6 @@ function Autofarm.Init(GlobalConfig, UI, Lang)
         EN = {
             TabName = "💰 AutoFarm",
             Enable = "Enable AutoFarm",
-            Radius = "Search Radius",
             Speed = "Movement Speed",
             ResetAfter = "Reset after full bag",
             Avoid = "Avoid Murderer",
@@ -253,14 +250,6 @@ function Autofarm.Init(GlobalConfig, UI, Lang)
                 stopFarming()
             end
         end
-    })
-
-    FarmTab:AddNumberInput({
-        Title = text.Radius,
-        Min = 50,
-        Max = 400,
-        Default = Autofarm.Config.Radius,
-        Callback = function(v) Autofarm.Config.Radius = v end
     })
 
     FarmTab:AddNumberInput({
