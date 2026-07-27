@@ -273,39 +273,37 @@ task.spawn(function()
             if Visuals.Config.AliveCounter then AliveFrame.Text = "🔪 Живых игроков: " .. aliveCount end
 
             -- Gun ESP (Улучшенный поиск)
-            local gunDrop = FindGunDrop()
-            if gunDrop then
-                local targetPart = gunDrop:IsA("Model") and gunDrop.PrimaryPart or gunDrop
-                if not targetPart and gunDrop:IsA("Model") then
-                    targetPart = gunDrop:FindFirstChildWhichIsA("BasePart")
-                end
-
-                if targetPart then
-                    local gunTag = targetPart:FindFirstChild("PF_GunTag")
-                    if Visuals.Config.GunESP then
-                        if not gunTag then
-                            gunTag = Instance.new("BillboardGui", targetPart)
-                            gunTag.Name = "PF_GunTag"
-                            gunTag.AlwaysOnTop = true
-                            gunTag.Size = UDim2.new(0, 200, 0, 40)
-                            gunTag.StudsOffset = Vector3.new(0, 2, 0)
-                            local lbl = Instance.new("TextLabel", gunTag)
-                            lbl.Size = UDim2.new(1, 0, 1, 0)
-                            lbl.BackgroundTransparency = 1
-                            lbl.Font = Enum.Font.GothamBold
-                            lbl.Text = "🔫 ПИСТОЛЕТ ЗДЕСЬ!"
-                            lbl.TextColor3 = Color3.fromRGB(255, 215, 0)
-                            lbl.TextSize = 16
-                            lbl.TextStrokeTransparency = 0
-                        end
-                    else
-                        if gunTag then gunTag:Destroy() end
-                    end
-                end
+           -- Функция поиска ВЫПАВШЕГО пистолета (игнорирует оружие в руках игроков)
+          local function FindGunDrop()
+    -- 1. Быстрый поиск по прямым детям Workspace (стандартный случай)
+          for _, child in ipairs(Workspace:GetChildren()) do
+          if child:IsA("Model") and child.Name == "GunDrop" then
+            -- Убедимся, что объект не принадлежит какому-либо игроку
+          if not child:IsDescendantOf(Players) then
+                return child
             end
-        end)
+          elseif child:IsA("Tool") and (child.Name == "Gun" or child.Name:lower():find("gun")) then
+            if not child:IsDescendantOf(Players) then
+                return child
+            end
+        end
     end
-end)
+
+    -- 2. Если не нашли, ищем глубже во всех потомках Workspace (исключая Players)
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name == "GunDrop" then
+            if not obj:IsDescendantOf(Players) then
+                return obj
+            end
+        elseif obj:IsA("Tool") and (obj.Name == "Gun" or obj.Name:lower():find("gun")) then
+            if not obj:IsDescendantOf(Players) then
+                return obj
+            end
+        end
+    end
+
+    return nil
+end
 
 function Visuals.Init(GlobalConfig, UI, Lang)
     local T = {
