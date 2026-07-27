@@ -103,23 +103,49 @@ local function GetColor(role)
 end
 
 -- Функция поиска выпавшего пистолета во всем Workspace
+-- Функция поиска ВЫПАВШЕГО пистолета (только на земле, не в руках)
 local function FindGunDrop()
-    -- Пробуем стандартное имя
-    local drop = Workspace:FindFirstChild("GunDrop")
-    if drop then return drop end
-
-    -- Если не нашли, ищем перебором всех объектов по ключевым словам
-    for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") or obj:IsA("Model") then
-            local name = obj.Name:lower()
-            if name == "gundrop" or name == "gun" or name == "revolverdrop" then
-                -- Убедимся, что это не игрок и не оружие в руках
-                if not obj:IsDescendantOf(Players) then
-                    return obj
-                end
+    -- Стандартный способ: модель GunDrop в Workspace
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Model") and obj.Name == "GunDrop" then
+            -- Дополнительно убедимся, что это не оружие в руках (нет Humanoid у родителя)
+            local parent = obj.Parent
+            if parent and parent:FindFirstChildOfClass("Humanoid") then
+                continue -- это персонаж, пропускаем
             end
+            return obj
         end
     end
+
+    -- Запасной вариант: Tool с именем "Gun", лежащий прямо в Workspace (не в Character)
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Tool") and (obj.Name == "Gun" or obj.Name:lower():find("gun")) then
+            -- Проверяем, что у него нет родителя с Humanoid
+            local parent = obj.Parent
+            if parent and parent:FindFirstChildOfClass("Humanoid") then
+                continue
+            end
+            return obj
+        end
+    end
+
+    -- Если не нашли, поищем глубже (на случай, если дроп лежит в папке)
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name == "GunDrop" then
+            local parent = obj.Parent
+            if parent and parent:FindFirstChildOfClass("Humanoid") then
+                continue
+            end
+            return obj
+        elseif obj:IsA("Tool") and (obj.Name == "Gun" or obj.Name:lower():find("gun")) then
+            local parent = obj.Parent
+            if parent and parent:FindFirstChildOfClass("Humanoid") then
+                continue
+            end
+            return obj
+        end
+    end
+
     return nil
 end
 
