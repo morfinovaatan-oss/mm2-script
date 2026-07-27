@@ -1,4 +1,4 @@
--- [[ MM2 VISUALS MODULE - ULTIMATE BULLETPROOF EDITION V2 (Fixed GunDrop) ]] --
+-- [[ MM2 VISUALS MODULE – Fixed & Polished ]] --
 local Visuals = {}
 
 local Players = game:GetService("Players")
@@ -104,10 +104,9 @@ end
 
 -- Функция поиска ВЫПАВШЕГО пистолета (игнорирует оружие в руках игроков)
 local function FindGunDrop()
-    -- 1. Быстрый поиск по прямым детям Workspace (стандартный случай)
+    -- 1. Быстрый поиск по прямым детям Workspace
     for _, child in ipairs(Workspace:GetChildren()) do
         if child:IsA("Model") and child.Name == "GunDrop" then
-            -- Убедимся, что объект не принадлежит какому-либо игроку
             if not child:IsDescendantOf(Players) then
                 return child
             end
@@ -118,7 +117,7 @@ local function FindGunDrop()
         end
     end
 
-    -- 2. Если не нашли, ищем глубже во всех потомках Workspace (исключая Players)
+    -- 2. Глубокий поиск по всем потомкам (исключая Players)
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name == "GunDrop" then
             if not obj:IsDescendantOf(Players) then
@@ -143,8 +142,12 @@ task.spawn(function()
             Crosshair.Visible = Visuals.Config.Crosshair
             AliveFrame.Visible = Visuals.Config.AliveCounter
             
-            if Visuals.Config.NightMode then Lighting.ClockTime = 0
-            elseif Visuals.Config.Fullbright then Lighting.ClockTime = 12; Lighting.Ambient = Color3.new(1, 1, 1) end
+            if Visuals.Config.NightMode then
+                Lighting.ClockTime = 0
+            elseif Visuals.Config.Fullbright then
+                Lighting.ClockTime = 12
+                Lighting.Ambient = Color3.new(1, 1, 1)
+            end
 
             local aliveCount = 0
 
@@ -255,7 +258,9 @@ task.spawn(function()
                 end
             end
             
-            if Visuals.Config.AliveCounter then AliveFrame.Text = "🔪 Живых игроков: " .. aliveCount end
+            if Visuals.Config.AliveCounter then
+                AliveFrame.Text = "🔪 Живых игроков: " .. aliveCount
+            end
 
             -- Gun ESP (Исправленный поиск)
             local gunDrop = FindGunDrop()
@@ -364,7 +369,7 @@ function Visuals.Init(GlobalConfig, UI, Lang)
     VisTab:AddToggle({ Title = text.CoinESP, Default = false, Callback = function(s) end })
 
     VisTab:AddSection(text.SecHUD)
-    VisTab:AddToggle({ Title = text.NightMode, Default = Visuals.Config.NightName or Visuals.Config.NightMode, Callback = function(s) Visuals.Config.NightMode = s end })
+    VisTab:AddToggle({ Title = text.NightMode, Default = Visuals.Config.NightMode, Callback = function(s) Visuals.Config.NightMode = s end })
     VisTab:AddToggle({ Title = text.Fullbright, Default = Visuals.Config.Fullbright, Callback = function(s) Visuals.Config.Fullbright = s end })
     VisTab:AddToggle({ Title = text.Crosshair, Default = Visuals.Config.Crosshair, Callback = function(s) Visuals.Config.Crosshair = s end })
     VisTab:AddToggle({ Title = text.Watermark, Default = Visuals.Config.Watermark, Callback = function(s) Visuals.Config.Watermark = s end })
