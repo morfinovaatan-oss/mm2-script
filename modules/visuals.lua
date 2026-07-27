@@ -1,4 +1,4 @@
--- [[ MM2 VISUALS MODULE – Final with GunESP (based on Zynic's logic) ]] --
+-- [[ MM2 VISUALS MODULE – Final with Fixed GunESP ]] --
 local Visuals = {}
 
 local Players = game:GetService("Players")
@@ -98,7 +98,7 @@ local function GetColor(role)
     else return Color3.fromRGB(30, 255, 30) end
 end
 
--- ====================== Поиск карты (как у Zynic) ======================
+-- ====================== Поиск карты ======================
 local function getMap()
     for _, v in ipairs(Workspace:GetDescendants()) do
         if v.Name == "Spawns" and v.Parent.Name ~= "Lobby" then
@@ -110,23 +110,25 @@ end
 
 -- ====================== GUN ESP ======================
 local function removeGunESP()
-    if currentGunHighlight then currentGunHighlight:Destroy(); currentGunHighlight = nil end
-    if currentGunBillboard then currentGunBillboard:Destroy(); currentGunBillboard = nil end
+    if currentGunHighlight then 
+        pcall(function() currentGunHighlight:Destroy() end)
+        currentGunHighlight = nil 
+    end
+    if currentGunBillboard then 
+        pcall(function() currentGunBillboard:Destroy() end)
+        currentGunBillboard = nil 
+    end
 end
 
-local function applyGunESP()
+local function applyGunESP(gunDrop)
     removeGunESP()
-    if not Visuals.Config.GunESP then return end
-
-    local map = getMap()
-    if not map then return end
-    local gunDrop = map:FindFirstChild("GunDrop")
     if not gunDrop then return end
 
-    -- Ищем деталь для позиционирования (Handle или любой BasePart)
     local handle = gunDrop:IsA("BasePart") and gunDrop
         or gunDrop:FindFirstChild("Handle")
         or gunDrop:FindFirstChildWhichIsA("BasePart", true)
+
+    if not handle then return end -- Защита от ошибок, если у модели еще не прогрузились детали
 
     -- 1. Highlight (видно сквозь стены)
     local hl = Instance.new("Highlight")
@@ -137,59 +139,33 @@ local function applyGunESP()
     hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     hl.Adornee = gunDrop
-    hl.Parent = gunDrop
+    
+    pcall(function() hl.Parent = CoreGui end)
+    if not hl.Parent then hl.Parent = gunDrop end
     currentGunHighlight = hl
 
     -- 2. BillboardGui с надписью
-    if handle then
-        local bb = Instance.new("BillboardGui")
-        bb.Name = "PF_GunText"
-        bb.Adornee = handle
-        bb.Size = UDim2.new(0, 150, 0, 40)
-        bb.StudsOffset = Vector3.new(0, 2.5, 0)
-        bb.AlwaysOnTop = true
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "PF_GunText"
+    bb.Adornee = handle
+    bb.Size = UDim2.new(0, 150, 0, 40)
+    bb.StudsOffset = Vector3.new(0, 2.5, 0)
+    bb.AlwaysOnTop = true
 
-        local label = Instance.new("TextLabel", bb)
-        label.Size = UDim2.new(1, 0, 1, 0)
-        label.BackgroundTransparency = 1
-        label.Text = "🔫 GUN HERE"
-        label.TextColor3 = Color3.fromRGB(255, 215, 0)
-        label.Font = Enum.Font.GothamBlack
-        label.TextSize = 18
-        label.TextStrokeTransparency = 0
-        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    local label = Instance.new("TextLabel", bb)
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "🔫 GUN HERE"
+    label.TextColor3 = Color3.fromRGB(255, 215, 0)
+    label.Font = Enum.Font.GothamBlack
+    label.TextSize = 18
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 
-        -- Пытаемся закрепить в CoreGui (чтобы текст не привязан к размеру модели)
-        pcall(function() bb.Parent = CoreGui end)
-        if not bb.Parent then
-            bb.Parent = handle
-        end
-        currentGunBillboard = bb
-    end
+    pcall(function() bb.Parent = CoreGui end)
+    if not bb.Parent then bb.Parent = handle end
+    currentGunBillboard = bb
 end
-
--- События появления/исчезновения GunDrop внутри карты
-local function connectGunDropEvents()
-    local map = getMap()
-    if not map then return end
-    map.ChildAdded:Connect(function(child)
-        if child.Name == "GunDrop" and Visuals.Config.GunESP then
-            task.wait(0.1)
-            applyGunESP()
-        end
-    end)
-    map.ChildRemoved:Connect(function(child)
-        if child.Name == "GunDrop" then
-            removeGunESP()
-        end
-    end)
-end
-
--- Первоначальная попытка подключения событий; если карта ещё не загружена, пробуем позже
-task.spawn(function()
-    while not getMap() do task.wait(1) end
-    connectGunDropEvents()
-end)
 
 -- ====================== ГЛАВНЫЙ ЦИКЛ ======================
 task.spawn(function()
@@ -320,9 +296,28 @@ task.spawn(function()
                 AliveFrame.Text = "🔪 Живых игроков: " .. aliveCount
             end
 
-            -- Периодическая проверка GunESP (на случай, если события не сработали)
-            if Visuals.Config.GunESP and not currentGunHighlight then
-                applyGunESP()
+            -- === ДИНАМИЧЕСКИЙ GUN ESP ===
+            if Visuals.Config.GunESP then
+                local map = getMap()
+                -- Ищем пистолет либо на карте, либо напрямую в Workspace
+                local gunDrop = (map and map:FindFirstChild("GunDrop", true)) or Workspace:FindFirstChild("GunDrop", true)
+
+                if gunDrop then
+                    -- Если пистолет найден, но визуала нет или он удален
+                    if not currentGunHighlight or not currentGunHighlight.Parent or currentGunHighlight.Adornee ~= gunDrop then
+                        applyGunESP(gunDrop)
+                    end
+                else
+                    -- Если пистолет исчез (подобрали), чистим визуалы
+                    if currentGunHighlight then
+                        removeGunESP()
+                    end
+                end
+            else
+                -- Если функцию выключили в меню
+                if currentGunHighlight then
+                    removeGunESP()
+                end
             end
         end)
     end
@@ -401,9 +396,7 @@ function Visuals.Init(GlobalConfig, UI, Lang)
         Default = Visuals.Config.GunESP,
         Callback = function(s)
             Visuals.Config.GunESP = s
-            if s then
-                applyGunESP()
-            else
+            if not s then
                 removeGunESP()
             end
         end
