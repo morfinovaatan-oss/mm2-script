@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Fixed Instant Pickup + Stable ESP support ]] --
+-- [[ MM2 COMBAT MODULE – Fixed Instant Pickup + Stable ESP support + Wallbang Hacker Mode ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -6,6 +6,7 @@ local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 local StarterGui = game:GetService("StarterGui")
@@ -149,11 +150,10 @@ local function getMap()
     return nil
 end
 
--- ================== Мгновенный подбор пистолета (исправлено!) ==================
+-- ================== Мгновенный подбор пистолета ==================
 local function HandleGunDrop(child)
     if child.Name ~= "GunDrop" then return end
 
-    -- Уведомление (если включено)
     if Combat.Config.AutoNotifyPickup then
         local cb = Instance.new("BindableFunction")
         cb.OnInvoke = function(arg)
@@ -174,32 +174,27 @@ local function HandleGunDrop(child)
         })
     end
 
-    -- Мгновенный подбор
     if Combat.Config.InstantGunPickup then
         local char = LocalPlayer.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
         local root = char.HumanoidRootPart
         local savedPos = root.CFrame
 
-        -- Телепорт к пистолету
         local targetPos = child:GetPivot() + Vector3.new(0, 1.5, 0)
         root.CFrame = targetPos
         task.wait(0.05)
 
-        -- Касание
         firetouchinterest(root, child, 0)
         firetouchinterest(root, child, 1)
 
         task.wait(0.1)
 
-        -- Возврат (только если персонаж всё ещё существует)
         if char and char:FindFirstChild("HumanoidRootPart") then
             root.CFrame = savedPos
         end
     end
 end
 
--- Отслеживаем появление GunDrop В ЛЮБОМ МЕСТЕ Workspace (включая вложенные модели)
 workspace.DescendantAdded:Connect(function(descendant)
     if descendant.Name == "GunDrop" then
         HandleGunDrop(descendant)
@@ -208,14 +203,12 @@ end)
 
 -- ================== Main Loop ==================
 task.spawn(function()
-    -- Бинды на выстрел и подбор
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
 
         if input.KeyCode == Combat.Config.ShootKey then
             SimulateClick()
         elseif input.KeyCode == Combat.Config.PickupKey then
-            -- Ручной мгновенный подбор (ищем GunDrop внутри карты)
             local map = getMap()
             local gunDrop = map and map:FindFirstChild("GunDrop")
             if gunDrop then
@@ -274,7 +267,7 @@ task.spawn(function()
         end
     end)
 
-     while task.wait(0.03) do
+    while task.wait(0.03) do
         pcall(function()
             local char = LocalPlayer.Character
             if not char or char:FindFirstChildOfClass("Humanoid").Health <= 0 then
@@ -286,43 +279,59 @@ task.spawn(function()
             FOVStroke.Transparency = Combat.Config.FOVTransparency
             FOVFrame.Visible = Combat.Config.AimEnabled
 
-            -- ================= ИСПРАВЛЕННЫЙ АИМБОТ (ВСТАВЛЯТЬ СЮДА) =================
+            -- Гарантируем дефолтный режим камеры
+            if Camera.CameraType == Enum.CameraType.Scriptable then
+                Camera.CameraType = Enum.CameraType.Custom
+            end
+
+            -- ================= АИМБОТ =================
             if Combat.Config.AimEnabled then
                 if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
                     local murderer = FindMurderer()
-                    if murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") then
-                        local mRoot = murderer.Character.HumanoidRootPart
-                        local mHead = murderer.Character:FindFirstChild("Head")
-                        local myRoot = char:FindFirstChild("HumanoidRootPart")
+                    if murderer and murderer.Character then
+                        local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
+                        local mHead = murderer.Character:FindFirstChild("Head") or mRoot
                         
-                        if myRoot and mHead then
-                            local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * 15)
-                            
-                            -- Гасим физику падения
-                            myRoot.Velocity = Vector3.zero
-                            myRoot.RotVelocity = Vector3.zero
-                            
-                            myRoot.CFrame = CFrame.lookAt(behindPos, mRoot.Position)
-                            
-                            -- Стабильная камера
-                            Camera.CameraType = Enum.CameraType.Scriptable
-                            Camera.CFrame = CFrame.lookAt(myRoot.Position + Vector3.new(0, 2.5, 6), mHead.Position)
-                            
-                            local tool = char:FindFirstChildOfClass("Tool")
-                            if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-                                SimulateClick()
+                        if mHead then
+                            -- 1. Вычисляем позицию с учетом упреждения
+                            local targetPos = mHead.Position
+                            if Combat.Config.Prediction > 0 and mRoot then
+                                targetPos = targetPos + (mRoot.Velocity * (Combat.Config.Prediction / 1000))
                             end
-                        end
-                    else
-                        if Camera.CameraType == Enum.CameraType.Scriptable then
-                            Camera.CameraType = Enum.CameraType.Custom
+
+                            -- 2. Авто-экипировка пистолета
+                            if Combat.Config.AutoEquipGun then
+                                local currentTool = char:FindFirstChildOfClass("Tool")
+                                if not currentTool or (currentTool.Name ~= "Gun" and not currentTool:FindFirstChild("Gun")) then
+                                    local backpack = LocalPlayer:FindFirstChild("Backpack")
+                                    local gun = backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChildOfClass("Tool"))
+                                    if gun then
+                                        char:FindFirstChildOfClass("Humanoid"):EquipTool(gun)
+                                    end
+                                end
+                            end
+
+                            -- 3. Направляем камеру на цель
+                            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+
+                            -- 4. Стрельба сквозь стены (Wallbang)
+                            if Combat.Config.AutoShot then
+                                local shootRemote = ReplicatedStorage:FindFirstChild("ShootGun", true)
+                                if shootRemote and shootRemote:IsA("RemoteEvent") then
+                                    -- Отправляем сигнал выстрела напрямую серверу с позицией мёрдера
+                                    shootRemote:FireServer(1, targetPos, "Shoot")
+                                    shootRemote:FireServer(targetPos)
+                                end
+                                
+                                local tool = char:FindFirstChildOfClass("Tool")
+                                if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
+                                    SimulateClick()
+                                end
+                            end
                         end
                     end
                 else
-                    if Camera.CameraType == Enum.CameraType.Scriptable then
-                        Camera.CameraType = Enum.CameraType.Custom
-                    end
-
+                    -- Стандартные режимы (Static, Dynamic, Smooth)
                     local target = GetAimTarget()
                     local targetPos = target and target.Position
                     if targetPos and Combat.Config.Prediction > 0 then
@@ -345,16 +354,10 @@ task.spawn(function()
                         end
                     end
                 end
-            else
-                if Camera.CameraType == Enum.CameraType.Scriptable then
-                    Camera.CameraType = Enum.CameraType.Custom
-                end
             end
-            -- =======================================================================
 
             -- Триггер-бот
             if Combat.Config.TriggerBot then
-                -- ... тут дальше идет твой старый код
                 local mousePos = UserInputService:GetMouseLocation()
                 local ray = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
                 local params = RaycastParams.new()
@@ -369,8 +372,8 @@ task.spawn(function()
                 end
             end
 
-            -- Авто-экипировка
-            if Combat.Config.AutoEquipGun then
+            -- Авто-экипировка (для остальных режимов)
+            if Combat.Config.AutoEquipGun and Combat.Config.AimMode ~= "Hacker" then
                 local currentTool = char:FindFirstChildOfClass("Tool")
                 if not currentTool or currentTool.Name ~= "Gun" then
                     local backpack = LocalPlayer:FindFirstChild("Backpack")
