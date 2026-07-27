@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Ultimate Chain: Instant Pickup → Hacker Mode ]] --
+-- [[ MM2 COMBAT MODULE – Ultimate Chain: Instant Pickup → Hacker Mode + FOV Center select ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -14,7 +14,8 @@ local StarterGui = game:GetService("StarterGui")
 Combat.Config = {
     -- Аимбот
     AimEnabled = false,
-    AimMode = "Dynamic",   -- Static, Dynamic, Smooth, Hacker
+    AimMode = "Dynamic",        -- Static, Dynamic, Smooth, Hacker
+    FOVCenter = "Mouse",        -- "Mouse" или "Camera"
     Prediction = 15,
     SmoothSpeed = 5,
     FOV = 120,
@@ -22,7 +23,7 @@ Combat.Config = {
     TriggerBot = false,
 
     -- Настройки Hacker Mode
-    HackerDistance = 15,    -- дистанция до мёрдера (5-20 метров)
+    HackerDistance = 15,
 
     -- Автоматизация
     AutoEquipGun = false,
@@ -63,7 +64,7 @@ local bodyVelocity = nil
 local hackerActive = false
 local lastShotTime = 0
 local SHOT_COOLDOWN = 0.5
-local pickedUpThisRound = false   -- флаг однократного подбора за раунд
+local pickedUpThisRound = false
 
 -- ================== Helpers ==================
 local function SimulateClick()
@@ -121,7 +122,13 @@ local function FindSheriff()
 end
 
 local function GetAimTarget()
-    local mousePos = UserInputService:GetMouseLocation()
+    local mousePos
+    if Combat.Config.FOVCenter == "Camera" then
+        mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    else
+        mousePos = UserInputService:GetMouseLocation()
+    end
+
     local best = nil
     local bestDist = Combat.Config.FOV
     for _, p in pairs(Players:GetPlayers()) do
@@ -168,22 +175,18 @@ local function performInstantPickup(gunDrop)
     local root = char.HumanoidRootPart
     local savedPos = root.CFrame
 
-    -- Мгновенный телепорт к пистолету
     root.CFrame = gunDrop:GetPivot() + Vector3.new(0, 1.5, 0)
     task.wait(0.02)
     firetouchinterest(root, gunDrop, 0)
     firetouchinterest(root, gunDrop, 1)
     task.wait(0.05)
 
-    -- Возвращаемся на исходную позицию (чтобы Hacker Mode сам телепортировал за спину мёрдеру)
     if char and char:FindFirstChild("HumanoidRootPart") then
         root.CFrame = savedPos
     end
-    
     pickedUpThisRound = true
 end
 
--- Уведомление о появлении пистолета (без подбора)
 local function notifyGunDrop(gunDrop)
     if not Combat.Config.AutoNotifyPickup then return end
     local cb = Instance.new("BindableFunction")
@@ -205,14 +208,12 @@ local function notifyGunDrop(gunDrop)
     })
 end
 
--- Слушаем появление GunDrop в любом месте Workspace (только для уведомления)
 workspace.DescendantAdded:Connect(function(descendant)
     if descendant.Name == "GunDrop" then
         notifyGunDrop(descendant)
     end
 end)
 
--- Сброс флага подбора при возрождении (начало нового раунда)
 LocalPlayer.CharacterAdded:Connect(function()
     pickedUpThisRound = false
 end)
@@ -263,11 +264,11 @@ local function startHeartbeat()
                 local gunDrop = map and map:FindFirstChild("GunDrop")
                 if gunDrop then
                     performInstantPickup(gunDrop)
-                    return  -- пропускаем кадр, чтобы завершить подбор
+                    return
                 end
             end
 
-            -- ШАГ 2: Аимбот и Hacker Mode (как только появился пистолет, включается режим)
+            -- ШАГ 2: Аимбот и Hacker Mode
             if Combat.Config.AimEnabled then
                 if Combat.Config.AimMode == "Hacker" and hasGun then
                     hackerActive = true
@@ -278,26 +279,22 @@ local function startHeartbeat()
                         if mRoot and mHead then
                             enableAntiGravity()
 
-                            -- Телепорт за спину мёрдеру
                             local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * Combat.Config.HackerDistance)
                             behindPos = behindPos + Vector3.new(0, 2.5, 0)
                             char:PivotTo(CFrame.new(behindPos, mRoot.Position))
 
-                            -- Гасим инерцию
                             local rootPart = char.HumanoidRootPart
                             if rootPart then
                                 rootPart.Velocity = Vector3.new(0, 0, 0)
                                 rootPart.RotVelocity = Vector3.new(0, 0, 0)
                             end
 
-                            -- Предикшн и наводка камеры
                             local targetPos = mHead.Position
                             if Combat.Config.Prediction > 0 then
                                 targetPos += mRoot.Velocity * (Combat.Config.Prediction / 1000)
                             end
                             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
 
-                            -- Авто-экипировка ствола
                             local tool = char:FindFirstChildOfClass("Tool")
                             if not tool or tool.Name ~= "Gun" then
                                 if Combat.Config.AutoEquipGun then
@@ -309,7 +306,6 @@ local function startHeartbeat()
                                 end
                             end
 
-                            -- Автовыстрел симуляцией кнопки
                             if Combat.Config.AutoShot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                                 local currentTool = char:FindFirstChildOfClass("Tool")
                                 if currentTool and (currentTool.Name == "Gun" or currentTool:FindFirstChild("Gun")) then
@@ -325,7 +321,7 @@ local function startHeartbeat()
                 else
                     hackerActive = false
                     disableAntiGravity()
-                    -- Стандартные режимы (Static, Smooth, Dynamic)
+                    -- Стандартные режимы
                     local target = GetAimTarget()
                     local targetPos = target and target.Position
                     if targetPos and Combat.Config.Prediction > 0 then
@@ -466,6 +462,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
             SecAim = "Аимбот",
             AimEnable = "Аимбот",
             AimMode = "Режим",
+            FOVCenter = "Центр FOV",
             Pred = "Упреждение",
             Smooth = "Сглаживание",
             FOV = "Радиус FOV",
@@ -496,6 +493,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
             SecAim = "Aimbot",
             AimEnable = "Aimbot",
             AimMode = "Mode",
+            FOVCenter = "FOV Center",
             Pred = "Prediction",
             Smooth = "Smoothness",
             FOV = "FOV Radius",
@@ -534,6 +532,12 @@ function Combat.Init(GlobalConfig, UI, Lang)
         Options = {"Static", "Dynamic", "Smooth", "Hacker"},
         Default = Combat.Config.AimMode,
         Callback = function(v) Combat.Config.AimMode = v end
+    })
+    tab:AddDropdown({
+        Title = text.FOVCenter,
+        Options = {"Mouse", "Camera"},
+        Default = Combat.Config.FOVCenter,
+        Callback = function(v) Combat.Config.FOVCenter = v end
     })
     tab:AddNumberInput({ Title = text.Pred, Min = 0, Max = 100, Default = Combat.Config.Prediction, Callback = function(v) Combat.Config.Prediction = v end })
     tab:AddNumberInput({ Title = text.Smooth, Min = 1, Max = 10, Default = Combat.Config.SmoothSpeed, Callback = function(v) Combat.Config.SmoothSpeed = v end })
