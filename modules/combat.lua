@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Polished Hacker Mode (No input spam, cooldown, Remote only) ]] --
+-- [[ MM2 COMBAT MODULE – Fixed Pickup, AutoShot via Activate, Clean Heartbeat ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -162,7 +162,7 @@ local function getMap()
     return nil
 end
 
--- ================== Мгновенный подбор пистолета ==================
+-- ================== Мгновенный подбор пистолета (исправлено) ==================
 local function HandleGunDrop(child)
     if child.Name ~= "GunDrop" then return end
 
@@ -199,7 +199,8 @@ local function HandleGunDrop(child)
         firetouchinterest(root, child, 0)
         firetouchinterest(root, child, 1)
 
-        task.wait(0.1)
+        -- Увеличенная задержка, чтобы игра обработала подбор и не заблокировала ввод
+        task.wait(0.15)
 
         if char and char:FindFirstChild("HumanoidRootPart") then
             root.CFrame = savedPos
@@ -283,6 +284,8 @@ local function startHeartbeat()
             FOVFrame.Visible = Combat.Config.AimEnabled
 
             -- ================= АИМБОТ =================
+            local targetPos = nil -- для передачи в блок выстрела
+
             if Combat.Config.AimEnabled then
                 if Combat.Config.AimMode == "Hacker" and IsLocalSheriff() then
                     hackerActive = true
@@ -306,7 +309,7 @@ local function startHeartbeat()
                             end
 
                             -- Цель с предикшеном
-                            local targetPos = mHead.Position
+                            targetPos = mHead.Position
                             if Combat.Config.Prediction > 0 then
                                 targetPos += mRoot.Velocity * (Combat.Config.Prediction / 1000)
                             end
@@ -325,19 +328,6 @@ local function startHeartbeat()
                                     end
                                 end
                             end
-
-                            -- Авто-выстрел с кулдауном и только через RemoteEvent
-                            if Combat.Config.AutoShot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
-                                local currentTool = char:FindFirstChildOfClass("Tool")
-                                if currentTool and (currentTool.Name == "Gun" or currentTool:FindFirstChild("Gun")) then
-                                    local remote = getOrFindRemote()
-                                    if remote then
-                                        remote:FireServer(targetPos)
-                                        lastShotTime = tick()
-                                    end
-                                    -- Полностью игнорируем эмуляцию мыши
-                                end
-                            end
                         end
                     else
                         hackerActive = false
@@ -348,7 +338,7 @@ local function startHeartbeat()
                     disableAntiGravity()
                     -- Стандартные режимы
                     local target = GetAimTarget()
-                    local targetPos = target and target.Position
+                    targetPos = target and target.Position
                     if targetPos and Combat.Config.Prediction > 0 then
                         local root = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
                         if root then targetPos += root.Velocity * (Combat.Config.Prediction / 1000) end
@@ -360,20 +350,31 @@ local function startHeartbeat()
                             SmoothAim(targetPos)
                         end
                     end
-                    if Combat.Config.AutoShot and targetPos and (tick() - lastShotTime >= SHOT_COOLDOWN) then
-                        local tool = char:FindFirstChildOfClass("Tool")
-                        if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-                            local remote = getOrFindRemote()
-                            if remote then
-                                remote:FireServer(targetPos)
-                                lastShotTime = tick()
-                            end
-                        end
-                    end
                 end
             else
                 hackerActive = false
                 disableAntiGravity()
+            end
+
+            -- ================= АВТО-ВЫСТРЕЛ (исправлен) =================
+            if Combat.Config.AutoShot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
+                local currentTool = char:FindFirstChildOfClass("Tool")
+                if currentTool and (currentTool.Name == "Gun" or currentTool:FindFirstChild("Gun")) then
+                    lastShotTime = tick()
+                    
+                    -- Вызываем штатную активацию оружия (эквивалент нажатия ЛКМ)
+                    pcall(function()
+                        currentTool:Activate()
+                    end)
+                    
+                    -- Дополнительно отправляем координаты на сервер (если есть RemoteEvent)
+                    local remote = getOrFindRemote()
+                    if remote and targetPos then
+                        pcall(function()
+                            remote:FireServer(targetPos)
+                        end)
+                    end
+                end
             end
 
             -- Триггер-бот (с кулдауном, использует SimulateClick)
@@ -450,7 +451,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 task.wait(0.05)
                 firetouchinterest(root, gunDrop, 0)
                 firetouchinterest(root, gunDrop, 1)
-                task.wait(0.1)
+                task.wait(0.15)  -- увеличенная задержка для возврата фокуса
                 if char:FindFirstChild("HumanoidRootPart") then
                     root.CFrame = savedPos
                 end
