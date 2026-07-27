@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Hacker Mode Final Fix (Camera Lock + AutoShot) ]] --
+-- [[ MM2 COMBAT MODULE – Hacker Mode Final Fix (Camera Lock + AutoShot + No Gravity Jitter) ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -204,6 +204,25 @@ workspace.DescendantAdded:Connect(function(descendant)
     end
 end)
 
+-- ================== Anti-Gravity Fix ==================
+local bodyVelocity = nil
+local function enableAntiGravity()
+    if bodyVelocity then return end
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    bodyVelocity.Parent = char.HumanoidRootPart
+end
+
+local function disableAntiGravity()
+    if bodyVelocity then
+        bodyVelocity:Destroy()
+        bodyVelocity = nil
+    end
+end
+
 -- ================== Main Loop ==================
 task.spawn(function()
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -275,6 +294,7 @@ task.spawn(function()
             local char = LocalPlayer.Character
             if not char or char:FindFirstChildOfClass("Humanoid").Health <= 0 then
                 FOVFrame.Visible = false
+                disableAntiGravity()
                 return
             end
 
@@ -290,9 +310,17 @@ task.spawn(function()
                         local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
                         local mHead = murderer.Character:FindFirstChild("Head") or mRoot
                         if mRoot and mHead then
+                            enableAntiGravity()  -- фиксируем персонажа в воздухе
+
                             -- Телепорт за спину
                             local behindPos = mRoot.Position - (mRoot.CFrame.LookVector * Combat.Config.HackerDistance)
                             char:PivotTo(CFrame.new(behindPos, mRoot.Position))
+                            -- Обнуляем скорость, чтобы не было дёрганий
+                            local rootPart = char.HumanoidRootPart
+                            if rootPart then
+                                rootPart.Velocity = Vector3.new(0, 0, 0)
+                                rootPart.RotVelocity = Vector3.new(0, 0, 0)
+                            end
 
                             -- Цель с предикшеном
                             local targetPos = mHead.Position
@@ -325,18 +353,22 @@ task.spawn(function()
                                     if remote and remote:IsA("RemoteEvent") then
                                         remote:FireServer(targetPos)
                                     else
-                                        -- Наведение мыши на цель и клик
+                                        -- Наведение мыши и клик
                                         local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
                                         if onScreen then
                                             VirtualInputManager:SendMouseMoveEvent(screenPos.X, screenPos.Y, game)
+                                            task.wait(0.01)  -- небольшая задержка, чтобы игра зарегистрировала позицию
                                         end
                                         SimulateClick()
                                     end
                                 end
                             end
                         end
+                    else
+                        disableAntiGravity()
                     end
                 else
+                    disableAntiGravity()
                     -- Стандартные режимы
                     local target = GetAimTarget()
                     local targetPos = target and target.Position
@@ -363,6 +395,8 @@ task.spawn(function()
                         end
                     end
                 end
+            else
+                disableAntiGravity()
             end
 
             -- Триггер-бот
