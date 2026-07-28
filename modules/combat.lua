@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Silent Aim via Instant Mouse Move + Full Arsenal ]] --
+-- [[ MM2 COMBAT MODULE – Silent Aim Camera Snap + Full Arsenal ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -7,7 +7,6 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 local StarterGui = game:GetService("StarterGui")
@@ -443,7 +442,7 @@ end
 
 startHeartbeat()
 
--- ================== Бинды клавиш (Silent Aim с мгновенным движением мыши) ==================
+-- ================== Бинды клавиш (Silent Aim с мгновенным поворотом камеры) ==================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
@@ -491,13 +490,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 return
             end
 
-            -- Перемещаем мышь на экранные координаты торса мёрдера
-            local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
-            if onScreen then
-                VirtualInputManager:SendMouseMoveEvent(screenPos.X, screenPos.Y, game)
-                task.wait(0.01)  -- даём игре зарегистрировать позицию мыши
-            end
-            SimulateClick()  -- честный выстрел (игра думает, что вы целитесь в мёрдера)
+            -- Сохраняем текущее положение камеры
+            local originalCFrame = Camera.CFrame
+            -- Мгновенно поворачиваем камеру на цель
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+            task.wait(0.01)  -- даём игре применить новый CFrame
+            SimulateClick()   -- производим выстрел
+            task.wait(0.01)
+            -- Возвращаем камеру обратно
+            Camera.CFrame = originalCFrame
         else
             -- Обычный выстрел
             SimulateClick()
