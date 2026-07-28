@@ -1,4 +1,4 @@
--- [[ MM2 MURDERER COMBAT MODULE – Reliable Kill Mechanics (Summon + Kill) ]] --
+-- [[ MM2 MURDERER COMBAT MODULE – Reliable Kill Mechanics (Summon + Kill + NoCollision) ]] --
 local MCombat = {}
 
 local Players = game:GetService("Players")
@@ -34,6 +34,28 @@ local function equipKnife()
         local knife = backpack and backpack:FindFirstChild("Knife")
         if knife and char:FindFirstChildOfClass("Humanoid") then
             char:FindFirstChildOfClass("Humanoid"):EquipTool(knife)
+        end
+    end
+end
+
+-- Отключить коллизию на всех частях персонажа
+local function disableCollision()
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") or part:IsA("MeshPart") then
+            part.CanCollide = false
+        end
+    end
+end
+
+-- Включить коллизию обратно
+local function enableCollision()
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") or part:IsA("MeshPart") then
+            part.CanCollide = true
         end
     end
 end
@@ -75,10 +97,7 @@ end
 -- Убить одного игрока (серия ударов)
 local function killPlayer(targetPlayer)
     if not targetPlayer or not targetPlayer.Character then return end
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     equipKnife()
-
     local start = tick()
     while targetPlayer.Character and targetPlayer.Character:FindFirstChildOfClass("Humanoid") and targetPlayer.Character.Humanoid.Health > 0 do
         if tick() - start > 3 then break end
@@ -87,41 +106,51 @@ local function killPlayer(targetPlayer)
     end
 end
 
--- Убить шерифа (призвать + убить)
+-- Убить шерифа (призвать + отключить коллизию + убить)
 local function killSheriffOnce()
     if killInProgress then return end
     killInProgress = true
+    disableCollision()
     local sheriff = FindSheriff()
     if sheriff then
         summonPlayer(sheriff)
         task.wait(0.1)
         killPlayer(sheriff)
     end
+    enableCollision()
     killInProgress = false
 end
 
--- Убить всех (10 раз призвать всех игроков, затем убить живых)
+-- Убить всех (100 раз призвать всех + одновременно убивать)
 local function killAllOnce()
     if killInProgress then return end
     killInProgress = true
+    disableCollision()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then
+        enableCollision()
         killInProgress = false
         return
     end
     equipKnife()
 
-    -- 10 раз призываем всех игроков (живых и мёртвых) для надёжности
-    for _ = 1, 10 do
+    for _ = 1, 100 do
         if not MCombat.Config.KillAll then break end
         local allPlayers = GetAllPlayers()
+        -- Призываем всех
         for _, player in ipairs(allPlayers) do
             summonPlayer(player)
+        end
+        -- Бьём всех, кто рядом
+        for _, player in ipairs(allPlayers) do
+            if player.Character and player.Character:FindFirstChildOfClass("Humanoid") and player.Character.Humanoid.Health > 0 then
+                SimulateClick()
+            end
         end
         task.wait(0.05)
     end
 
-    -- Теперь убиваем всех, кто жив
+    -- Добиваем оставшихся
     local alivePlayers = GetAllPlayers()
     for _, player in ipairs(alivePlayers) do
         if not MCombat.Config.KillAll then break end
@@ -131,6 +160,7 @@ local function killAllOnce()
         task.wait(0.1)
     end
 
+    enableCollision()
     MCombat.Config.KillAll = false
     killInProgress = false
 end
@@ -178,6 +208,7 @@ end)
 -- Сброс при возрождении
 LocalPlayer.CharacterAdded:Connect(function()
     killInProgress = false
+    enableCollision()
 end)
 
 -- UI Init
