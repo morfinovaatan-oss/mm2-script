@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Ultimate Chain: Instant Pickup → Hacker Mode + FOV Center select ]] --
+-- [[ MM2 COMBAT MODULE – Mouse Aimbot + Hacker Mode + Instant Pickup ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -17,7 +17,7 @@ Combat.Config = {
     AimMode = "Dynamic",        -- Static, Dynamic, Smooth, Hacker
     FOVCenter = "Mouse",        -- "Mouse" или "Camera"
     Prediction = 15,
-    SmoothSpeed = 5,
+    SmoothSpeed = 5,            -- 1-10, чем выше, тем резче движение мыши
     FOV = 120,
     FOVTransparency = 0.5,
     TriggerBot = false,
@@ -65,6 +65,7 @@ local hackerActive = false
 local lastShotTime = 0
 local SHOT_COOLDOWN = 0.5
 local pickedUpThisRound = false
+local lastMousePos = nil  -- для сглаживания движения мыши
 
 -- ================== Helpers ==================
 local function SimulateClick()
@@ -122,14 +123,15 @@ local function FindSheriff()
 end
 
 local function GetAimTarget()
-    local mousePos
+    local centerPoint
     if Combat.Config.FOVCenter == "Camera" then
-        mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        centerPoint = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     else
-        mousePos = UserInputService:GetMouseLocation()
+        centerPoint = UserInputService:GetMouseLocation()
     end
 
     local best = nil
+    local bestScreenPos = nil
     local bestDist = Combat.Config.FOV
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
@@ -138,23 +140,36 @@ local function GetAimTarget()
             if hum and hum.Health > 0 and head and IsThreat(p) then
                 local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
                 if onScreen then
-                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - centerPoint).Magnitude
                     if dist < bestDist then
                         bestDist = dist
                         best = head
+                        bestScreenPos = screenPos
                     end
                 end
             end
         end
     end
-    return best
+    return best, bestScreenPos
 end
 
-local function SmoothAim(targetPos, speed)
-    speed = speed or Combat.Config.SmoothSpeed / 10
-    local current = Camera.CFrame
-    local desired = CFrame.new(current.Position, targetPos)
-    Camera.CFrame = current:Lerp(desired, speed)
+-- ================== Движение мыши ==================
+local function moveMouseToScreenPos(targetScreenPos, speed)
+    if not targetScreenPos then return end
+    if not lastMousePos then
+        lastMousePos = UserInputService:GetMouseLocation()
+    end
+    local current = lastMousePos
+    -- speed = 0..1, но мы передаём скорость от 0 до 1 (SmoothSpeed / 10 даст 0.1..1)
+    local factor = math.clamp(speed, 0.1, 1)
+    local newPos
+    if factor >= 1 then
+        newPos = targetScreenPos
+    else
+        newPos = current:Lerp(Vector2.new(targetScreenPos.X, targetScreenPos.Y), factor)
+    end
+    VirtualInputManager:SendMouseMoveEvent(newPos.X, newPos.Y, game)
+    lastMousePos = newPos
 end
 
 -- ================== Поиск карты ==================
@@ -216,6 +231,7 @@ end)
 
 LocalPlayer.CharacterAdded:Connect(function()
     pickedUpThisRound = false
+    lastMousePos = nil
 end)
 
 -- ================== Управление BodyVelocity ==================
@@ -249,6 +265,7 @@ local function startHeartbeat()
                     disableAntiGravity()
                 end
                 FOVFrame.Visible = false
+                lastMousePos = nil
                 return
             end
 
@@ -272,6 +289,7 @@ local function startHeartbeat()
             if Combat.Config.AimEnabled then
                 if Combat.Config.AimMode == "Hacker" and hasGun then
                     hackerActive = true
+                    lastMousePos = nil  -- в Hacker Mode мышь не двигаем
                     local murderer = FindMurderer()
                     if murderer and murderer.Character then
                         local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
@@ -321,31 +339,31 @@ local function startHeartbeat()
                 else
                     hackerActive = false
                     disableAntiGravity()
-                    -- Стандартные режимы
-                    local target = GetAimTarget()
-                    local targetPos = target and target.Position
-                    if targetPos and Combat.Config.Prediction > 0 then
-                        local root = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
-                        if root then targetPos += root.Velocity * (Combat.Config.Prediction / 1000) end
-                    end
-                    if targetPos then
+                    -- Стандартные режимы: двигаем мышь, а не камеру
+                    local target, screenPos = GetAimTarget()
+                    if target and screenPos then
+                        local speed = Combat.Config.SmoothSpeed / 10
                         if Combat.Config.AimMode == "Static" then
-                            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-                        elseif Combat.Config.AimMode == "Smooth" or Combat.Config.AimMode == "Dynamic" then
-                            SmoothAim(targetPos)
+                            speed = 1  -- мгновенно
                         end
-                    end
-                    if Combat.Config.AutoShot and targetPos and (tick() - lastShotTime >= SHOT_COOLDOWN) then
-                        local tool = char:FindFirstChildOfClass("Tool")
-                        if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-                            SimulateClick()
-                            lastShotTime = tick()
+                        moveMouseToScreenPos(Vector2.new(screenPos.X, screenPos.Y), speed)
+
+                        -- AutoShot для стандартных режимов
+                        if Combat.Config.AutoShot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
+                            local tool = char:FindFirstChildOfClass("Tool")
+                            if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
+                                SimulateClick()
+                                lastShotTime = tick()
+                            end
                         end
+                    else
+                        lastMousePos = nil  -- цели нет, сбрасываем
                     end
                 end
             else
                 hackerActive = false
                 disableAntiGravity()
+                lastMousePos = nil
             end
 
             -- Триггер-бот
