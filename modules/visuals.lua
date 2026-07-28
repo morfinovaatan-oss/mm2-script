@@ -1,4 +1,4 @@
--- [[ MM2 VISUALS MODULE – Final with Fixed GunESP ]] --
+-- [[ MM2 VISUALS MODULE – Final without internal Watermark ]] --
 local Visuals = {}
 
 local Players = game:GetService("Players")
@@ -27,7 +27,6 @@ Visuals.Config = {
     NightMode = false,
     Fullbright = false,
     Crosshair = false,
-    Watermark = true,
     AliveCounter = false,
 }
 
@@ -41,18 +40,6 @@ HUDGui.Name = "PurpleFox_HUD"
 HUDGui.ResetOnSpawn = false
 pcall(function() HUDGui.Parent = CoreGui end)
 if not HUDGui.Parent then HUDGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
-
-local Watermark = Instance.new("TextLabel", HUDGui)
-Watermark.Size = UDim2.new(0, 180, 0, 28)
-Watermark.Position = UDim2.new(0, 10, 0, 10)
-Watermark.BackgroundColor3 = Color3.fromRGB(15, 10, 20)
-Watermark.BackgroundTransparency = 0.4
-Watermark.TextColor3 = Color3.fromRGB(160, 32, 240)
-Watermark.Font = Enum.Font.GothamBold
-Watermark.TextSize = 13
-Watermark.Text = " 🦊 PURPLE FOX | MM2 "
-Watermark.Visible = false
-Instance.new("UICorner", Watermark).CornerRadius = UDim.new(0, 4)
 
 local Crosshair = Instance.new("Frame", HUDGui)
 Crosshair.Size = UDim2.new(0, 30, 0, 30)
@@ -128,7 +115,7 @@ local function applyGunESP(gunDrop)
         or gunDrop:FindFirstChild("Handle")
         or gunDrop:FindFirstChildWhichIsA("BasePart", true)
 
-    if not handle then return end -- Защита от ошибок, если у модели еще не прогрузились детали
+    if not handle then return end
 
     -- 1. Highlight (видно сквозь стены)
     local hl = Instance.new("Highlight")
@@ -172,7 +159,6 @@ task.spawn(function()
     while task.wait(0.1) do
         pcall(function()
             -- HUD
-            Watermark.Visible = Visuals.Config.Watermark
             Crosshair.Visible = Visuals.Config.Crosshair
             AliveFrame.Visible = Visuals.Config.AliveCounter
 
@@ -299,22 +285,18 @@ task.spawn(function()
             -- === ДИНАМИЧЕСКИЙ GUN ESP ===
             if Visuals.Config.GunESP then
                 local map = getMap()
-                -- Ищем пистолет либо на карте, либо напрямую в Workspace
                 local gunDrop = (map and map:FindFirstChild("GunDrop", true)) or Workspace:FindFirstChild("GunDrop", true)
 
                 if gunDrop then
-                    -- Если пистолет найден, но визуала нет или он удален
                     if not currentGunHighlight or not currentGunHighlight.Parent or currentGunHighlight.Adornee ~= gunDrop then
                         applyGunESP(gunDrop)
                     end
                 else
-                    -- Если пистолет исчез (подобрали), чистим визуалы
                     if currentGunHighlight then
                         removeGunESP()
                     end
                 end
             else
-                -- Если функцию выключили в меню
                 if currentGunHighlight then
                     removeGunESP()
                 end
@@ -347,8 +329,7 @@ function Visuals.Init(GlobalConfig, UI, Lang)
             NightMode = "12. Ночной режим",
             Fullbright = "13. Максимальная яркость",
             Crosshair = "14. Прицел в центре экрана",
-            Watermark = "15. Водяной знак хака",
-            AliveCount = "16. Счетчик живых игроков"
+            AliveCount = "15. Счетчик живых игроков"
         },
         EN = {
             Tab = "👁️ Visuals",
@@ -371,8 +352,7 @@ function Visuals.Init(GlobalConfig, UI, Lang)
             NightMode = "12. Night Mode",
             Fullbright = "13. Fullbright",
             Crosshair = "14. Crosshair",
-            Watermark = "15. Watermark",
-            AliveCount = "16. Alive Counter"
+            AliveCount = "15. Alive Counter"
         }
     }
 
@@ -407,7 +387,6 @@ function Visuals.Init(GlobalConfig, UI, Lang)
     VisTab:AddToggle({ Title = text.NightMode, Default = Visuals.Config.NightMode, Callback = function(s) Visuals.Config.NightMode = s end })
     VisTab:AddToggle({ Title = text.Fullbright, Default = Visuals.Config.Fullbright, Callback = function(s) Visuals.Config.Fullbright = s end })
     VisTab:AddToggle({ Title = text.Crosshair, Default = Visuals.Config.Crosshair, Callback = function(s) Visuals.Config.Crosshair = s end })
-    VisTab:AddToggle({ Title = text.Watermark, Default = Visuals.Config.Watermark, Callback = function(s) Visuals.Config.Watermark = s end })
     VisTab:AddToggle({ Title = text.AliveCount, Default = Visuals.Config.AliveCounter, Callback = function(s) Visuals.Config.AliveCounter = s end })
 end
 
