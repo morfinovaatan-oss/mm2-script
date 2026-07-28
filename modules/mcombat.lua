@@ -1,4 +1,4 @@
--- [[ MM2 MURDERER COMBAT MODULE – Aimbot + Auto Knife + Teleport ]] --
+-- [[ MM2 MURDERER COMBAT MODULE – Aimbot + Kill Sheriff/Kill All ]] --
 local MCombat = {}
 
 local Players = game:GetService("Players")
@@ -9,7 +9,6 @@ local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
-local StarterGui = game:GetService("StarterGui")
 
 MCombat.Config = {
     -- Аимбот
@@ -20,19 +19,15 @@ MCombat.Config = {
     SmoothSpeed = 5,
     FOV = 120,
     FOVTransparency = 0.5,
-    AutoShiftLock = true,       -- автоматически включать Shift Lock при захвате цели
+    AutoShiftLock = true,
 
-    -- Телепорт к шерифу
-    TeleportToSheriff = false,
-    TeleportDistance = 5,       -- дистанция перед шерифом
-
-    -- Авто‑атака ножом
-    AutoKnife = false,
-    KnifeDistance = 8,          -- дистанция для удара
-    KnifeCooldown = 0.4,
+    -- Kill Sheriff / Kill All
+    KillSheriff = false,
+    KillAll = false,
+    KillCooldown = 0.5,
 
     -- Бинды
-    ShootKey = Enum.KeyCode.C,   -- для ножа будет использоваться этот же бинд (удар)
+    KnifeKey = Enum.KeyCode.C,
     FindSheriffKey = Enum.KeyCode.X,
 }
 
@@ -51,12 +46,12 @@ FOVFrame.Visible = false
 Instance.new("UICorner", FOVFrame).CornerRadius = UDim.new(1, 0)
 local FOVStroke = Instance.new("UIStroke", FOVFrame)
 FOVStroke.Thickness = 1.5
-FOVStroke.Color = Color3.fromRGB(255, 50, 50)  -- красный для мёрдера
+FOVStroke.Color = Color3.fromRGB(255, 50, 50)
 
 -- Состояния
-local lastShotTime = 0
+local lastKillTime = 0
 local shiftLockActive = false
-local bodyVelocity = nil
+local killInProgress = false
 
 -- Helpers
 local function SimulateClick()
@@ -80,6 +75,19 @@ local function disableShiftLock()
     shiftLockActive = false
 end
 
+local function equipKnife()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local tool = char:FindFirstChildOfClass("Tool")
+    if not tool or tool.Name ~= "Knife" then
+        local backpack = LocalPlayer:FindFirstChild("Backpack")
+        local knife = backpack and backpack:FindFirstChild("Knife")
+        if knife and char:FindFirstChildOfClass("Humanoid") then
+            char:FindFirstChildOfClass("Humanoid"):EquipTool(knife)
+        end
+    end
+end
+
 local function FindSheriff()
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
@@ -91,6 +99,16 @@ local function FindSheriff()
         end
     end
     return nil
+end
+
+local function GetAlivePlayers()
+    local alive = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+            table.insert(alive, p)
+        end
+    end
+    return alive
 end
 
 local function GetAimTarget()
@@ -107,7 +125,6 @@ local function GetAimTarget()
         if p ~= LocalPlayer and p.Character then
             local hum = p.Character:FindFirstChildOfClass("Humanoid")
             local head = p.Character:FindFirstChild("Head")
-            -- Только шерифы
             local hasGun = p.Character:FindFirstChild("Gun") or (p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Gun"))
             local hasRevolver = p.Character:FindFirstChild("Revolver") or (p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Revolver"))
             if hum and hum.Health > 0 and head and (hasGun or hasRevolver) then
@@ -132,21 +149,48 @@ local function SmoothAim(targetPos, speed)
     Camera.CFrame = current:Lerp(desired, speed)
 end
 
-local function enableAntiGravity()
-    if bodyVelocity then return end
+-- Kill one player (teleport + knife)
+local function killPlayer(targetPlayer)
+    if not targetPlayer or not targetPlayer.Character then return end
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    bodyVelocity = Instance.new("BodyVelocity")
-    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-    bodyVelocity.Parent = char.HumanoidRootPart
+    local root = char.HumanoidRootPart
+    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then return end
+
+    equipKnife()
+    root.CFrame = targetRoot.CFrame + Vector3.new(0, 2, 0)
+    task.wait(0.05)
+
+    local start = tick()
+    while targetPlayer.Character and targetPlayer.Character:FindFirstChildOfClass("Humanoid") and targetPlayer.Character.Humanoid.Health > 0 do
+        if tick() - start > 3 then break end
+        SimulateClick()
+        task.wait(0.1)
+    end
 end
 
-local function disableAntiGravity()
-    if bodyVelocity then
-        bodyVelocity:Destroy()
-        bodyVelocity = nil
+local function killSheriffOnce()
+    if killInProgress then return end
+    killInProgress = true
+    local sheriff = FindSheriff()
+    if sheriff then
+        killPlayer(sheriff)
     end
+    killInProgress = false
+end
+
+local function killAllOnce()
+    if killInProgress then return end
+    killInProgress = true
+    local alivePlayers = GetAlivePlayers()
+    for _, player in ipairs(alivePlayers) do
+        if not MCombat.Config.KillAll then break end
+        killPlayer(player)
+        task.wait(0.2)
+    end
+    MCombat.Config.KillAll = false
+    killInProgress = false
 end
 
 -- Heartbeat
@@ -159,7 +203,7 @@ local function startHeartbeat()
             if not char or char:FindFirstChildOfClass("Humanoid").Health <= 0 then
                 FOVFrame.Visible = false
                 disableShiftLock()
-                disableAntiGravity()
+                killInProgress = false
                 return
             end
 
@@ -167,28 +211,16 @@ local function startHeartbeat()
             FOVStroke.Transparency = MCombat.Config.FOVTransparency
             FOVFrame.Visible = MCombat.Config.AimEnabled
 
-            -- Телепорт к шерифу
-            if MCombat.Config.TeleportToSheriff then
-                local sheriff = FindSheriff()
-                if sheriff and sheriff.Character and sheriff.Character:FindFirstChild("HumanoidRootPart") then
-                    local sRoot = sheriff.Character.HumanoidRootPart
-                    local targetPos = sRoot.Position + (sRoot.CFrame.LookVector * MCombat.Config.TeleportDistance)
-                    targetPos = targetPos + Vector3.new(0, 2.5, 0)
-                    char:PivotTo(CFrame.new(targetPos, sRoot.Position))
-                    if char.HumanoidRootPart then
-                        char.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
-                        char.HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
-                    end
-                    enableAntiGravity()
-                else
-                    disableAntiGravity()
-                end
-            else
-                disableAntiGravity()
+            if MCombat.Config.KillSheriff and not killInProgress and (tick() - lastKillTime >= MCombat.Config.KillCooldown) then
+                lastKillTime = tick()
+                task.spawn(killSheriffOnce)
             end
 
-            -- Аимбот
-            if MCombat.Config.AimEnabled and not MCombat.Config.TeleportToSheriff then
+            if MCombat.Config.KillAll and not killInProgress then
+                task.spawn(killAllOnce)
+            end
+
+            if MCombat.Config.AimEnabled and not killInProgress then
                 local target = GetAimTarget()
                 local targetPos = target and target.Position
                 if targetPos then
@@ -207,40 +239,8 @@ local function startHeartbeat()
                 else
                     disableShiftLock()
                 end
-            elseif MCombat.Config.TeleportToSheriff then
-                -- В режиме телепорта камера на шерифа
-                local sheriff = FindSheriff()
-                if sheriff and sheriff.Character and sheriff.Character:FindFirstChild("Head") then
-                    Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, sheriff.Character.Head.Position)
-                end
-                disableShiftLock()
             else
                 disableShiftLock()
-            end
-
-            -- Авто‑атака ножом
-            if MCombat.Config.AutoKnife then
-                local sheriff = FindSheriff()
-                if sheriff and sheriff.Character and sheriff.Character:FindFirstChild("HumanoidRootPart") then
-                    local sRoot = sheriff.Character.HumanoidRootPart
-                    local myRoot = char:FindFirstChild("HumanoidRootPart")
-                    if myRoot then
-                        local dist = (myRoot.Position - sRoot.Position).Magnitude
-                        if dist <= MCombat.Config.KnifeDistance and (tick() - lastShotTime >= MCombat.Config.KnifeCooldown) then
-                            -- Экипируем нож, если не в руках
-                            local tool = char:FindFirstChildOfClass("Tool")
-                            if not tool or tool.Name ~= "Knife" then
-                                local backpack = LocalPlayer:FindFirstChild("Backpack")
-                                local knife = backpack and backpack:FindFirstChild("Knife")
-                                if knife and char:FindFirstChildOfClass("Humanoid") then
-                                    char:FindFirstChildOfClass("Humanoid"):EquipTool(knife)
-                                end
-                            end
-                            SimulateClick()
-                            lastShotTime = tick()
-                        end
-                    end
-                end
             end
         end)
     end)
@@ -251,13 +251,13 @@ startHeartbeat()
 -- Бинды
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-    if input.KeyCode == MCombat.Config.ShootKey then
+    if input.KeyCode == MCombat.Config.KnifeKey then
         SimulateClick()
     elseif input.KeyCode == MCombat.Config.FindSheriffKey then
         local sheriff = FindSheriff()
         if sheriff then
             local userId = Players:GetUserIdFromNameAsync(sheriff.Name)
-            StarterGui:SetCore("SendNotification", {
+            game:GetService("StarterGui"):SetCore("SendNotification", {
                 Title = "Sheriff",
                 Text = "Their name is " .. sheriff.Name .. "!",
                 Icon = "https://web.roblox.com/Thumbs/Avatar.ashx?x=100&y=100&Format=Png&userid=" .. userId,
@@ -265,7 +265,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 Button1 = "Dismiss",
             })
         else
-            StarterGui:SetCore("SendNotification", {
+            game:GetService("StarterGui"):SetCore("SendNotification", {
                 Title = "Sheriff",
                 Text = "No sheriff could be found!",
                 Duration = 5,
@@ -275,10 +275,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- Очистка при возрождении
 LocalPlayer.CharacterAdded:Connect(function()
     if shiftLockActive then disableShiftLock() end
-    disableAntiGravity()
+    killInProgress = false
 end)
 
 -- UI Init
@@ -286,7 +285,7 @@ function MCombat.Init(GlobalConfig, UI, Lang)
     local T = {
         RU = {
             Tab = "🔪 Убийца",
-            SecAim = "Аимбот на шерифа",
+            SecAim = "Аимбот (нож)",
             AimEnable = "Аимбот",
             AimMode = "Режим",
             FOVCenter = "Центр FOV",
@@ -296,22 +295,18 @@ function MCombat.Init(GlobalConfig, UI, Lang)
             FOVTrans = "Прозрачность FOV",
             AutoShiftLock = "Авто-Shift Lock",
 
-            SecTeleport = "Телепорт к шерифу",
-            TeleportEnable = "Телепортироваться",
-            TeleportDist = "Дистанция перед шерифом",
-
-            SecAuto = "Авто‑атака",
-            AutoKnife = "Авто‑удар ножом",
-            KnifeDist = "Дистанция удара",
-            KnifeCooldown = "Кулдаун (сек)",
+            SecKill = "Убийства",
+            KillSheriff = "Убить шерифа",
+            KillAll = "Убить всех",
+            KillCooldown = "Кулдаун (сек)",
 
             SecKeys = "Клавиши",
-            ShootKey = "Удар ножом",
+            KnifeKey = "Удар ножом",
             FindSheriffKey = "Найти шерифа",
         },
         EN = {
             Tab = "🔪 Murderer",
-            SecAim = "Aimbot on Sheriff",
+            SecAim = "Aimbot (Knife)",
             AimEnable = "Aimbot",
             AimMode = "Mode",
             FOVCenter = "FOV Center",
@@ -321,17 +316,13 @@ function MCombat.Init(GlobalConfig, UI, Lang)
             FOVTrans = "FOV Transparency",
             AutoShiftLock = "Auto Shift Lock",
 
-            SecTeleport = "Teleport to Sheriff",
-            TeleportEnable = "Teleport",
-            TeleportDist = "Distance in front",
-
-            SecAuto = "Auto Attack",
-            AutoKnife = "Auto Knife",
-            KnifeDist = "Knife Distance",
-            KnifeCooldown = "Cooldown (s)",
+            SecKill = "Kills",
+            KillSheriff = "Kill Sheriff",
+            KillAll = "Kill All",
+            KillCooldown = "Cooldown (s)",
 
             SecKeys = "Keybinds",
-            ShootKey = "Knife Hit",
+            KnifeKey = "Knife Hit",
             FindSheriffKey = "Find Sheriff",
         }
     }
@@ -339,7 +330,6 @@ function MCombat.Init(GlobalConfig, UI, Lang)
     local text = T[Lang] or T.RU
     local tab = UI:CreateTab(text.Tab)
 
-    -- Aimbot Section
     tab:AddSection(text.SecAim)
     tab:AddToggle({ Title = text.AimEnable, Default = false, Callback = function(s) MCombat.Config.AimEnabled = s end })
     tab:AddDropdown({
@@ -360,18 +350,11 @@ function MCombat.Init(GlobalConfig, UI, Lang)
     tab:AddNumberInput({ Title = text.FOVTrans, Min = 0, Max = 1, Default = MCombat.Config.FOVTransparency, Callback = function(v) MCombat.Config.FOVTransparency = v end })
     tab:AddToggle({ Title = text.AutoShiftLock, Default = MCombat.Config.AutoShiftLock, Callback = function(s) MCombat.Config.AutoShiftLock = s end })
 
-    -- Teleport Section
-    tab:AddSection(text.SecTeleport)
-    tab:AddToggle({ Title = text.TeleportEnable, Default = false, Callback = function(s) MCombat.Config.TeleportToSheriff = s end })
-    tab:AddNumberInput({ Title = text.TeleportDist, Min = 2, Max = 15, Default = MCombat.Config.TeleportDistance, Callback = function(v) MCombat.Config.TeleportDistance = v end })
+    tab:AddSection(text.SecKill)
+    tab:AddToggle({ Title = text.KillSheriff, Default = false, Callback = function(s) MCombat.Config.KillSheriff = s end })
+    tab:AddToggle({ Title = text.KillAll, Default = false, Callback = function(s) MCombat.Config.KillAll = s end })
+    tab:AddNumberInput({ Title = text.KillCooldown, Min = 0.1, Max = 2, Default = MCombat.Config.KillCooldown, Callback = function(v) MCombat.Config.KillCooldown = v end })
 
-    -- Auto Attack Section
-    tab:AddSection(text.SecAuto)
-    tab:AddToggle({ Title = text.AutoKnife, Default = false, Callback = function(s) MCombat.Config.AutoKnife = s end })
-    tab:AddNumberInput({ Title = text.KnifeDist, Min = 3, Max = 12, Default = MCombat.Config.KnifeDistance, Callback = function(v) MCombat.Config.KnifeDistance = v end })
-    tab:AddNumberInput({ Title = text.KnifeCooldown, Min = 0.1, Max = 1, Default = MCombat.Config.KnifeCooldown, Callback = function(v) MCombat.Config.KnifeCooldown = v end })
-
-    -- Keybinds Section
     tab:AddSection(text.SecKeys)
     local function addBindLabelAndButton(keyName, configKeyString)
         local label = tab:AddLabel(keyName .. " : " .. tostring(MCombat.Config[configKeyString]):gsub("Enum.KeyCode.", ""))
@@ -391,7 +374,7 @@ function MCombat.Init(GlobalConfig, UI, Lang)
             end
         end)
     end
-    addBindLabelAndButton(text.ShootKey, "ShootKey")
+    addBindLabelAndButton(text.KnifeKey, "KnifeKey")
     addBindLabelAndButton(text.FindSheriffKey, "FindSheriffKey")
 end
 
