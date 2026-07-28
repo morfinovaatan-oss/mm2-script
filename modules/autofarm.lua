@@ -24,7 +24,7 @@ local touchedCoins = {}
 local positionConnections = {}
 local addConn, remConn = nil, nil
 local farming = false
-local roundStartTime = 0   -- время начала раунда (для 12-сек задержки)
+local roundStartTime = 0   -- время начала раунда (для задержки)
 
 -- ====================== СТАТИСТИКА ======================
 local function createStatsWindow()
@@ -426,6 +426,7 @@ local function collectCoins()
             and gui.Game.CoinBags.Container:FindFirstChild("SnowToken") 
             and gui.Game.CoinBags.Container.SnowToken:FindFirstChild("FullBagIcon")
         if fullBagIcon and fullBagIcon.Visible then
+            -- Мешок полон – запускаем завершение раунда, если включено
             while isRoundActive() and farming do
                 if Autofarm.AutoEndRound then
                     ExecuteEndRound()
@@ -434,6 +435,7 @@ local function collectCoins()
             end
             break
         end
+
         local char = LocalPlayer.Character
         if not char or not char.PrimaryPart then task.wait(0.5); continue end
         local root = char.PrimaryPart
@@ -481,20 +483,19 @@ local function farmLoop()
             roundStartTime = tick()
         end
 
-        -- Ждём 12 секунд после начала раунда, прежде чем действовать
+        -- Ждём 12 секунд после начала раунда, прежде чем начать сбор
         if tick() - roundStartTime < 12 then
             task.wait(1)
             continue
         end
 
-        -- Если мы мертвы и включено авто‑завершение, просто убиваем мёрдера
-        if Autofarm.AutoEndRound and getPlayerRole() == "Dead" then
-            ExecuteEndRound()
-            task.wait(1)
+        -- Фармим только если персонаж жив
+        local role = getPlayerRole()
+        if role == "Dead" then
+            task.wait(2)   -- просто ждём, ничего не делаем
             continue
         end
 
-        -- Иначе фармим монеты
         if not loadOctree() then
             task.wait(2)
             continue
