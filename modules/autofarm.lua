@@ -1,6 +1,3 @@
-Вкладка пропала, потому что я переименовал модуль в `FoxAutofarm`, а загрузчик ожидает `Autofarm`. Сейчас всё исправлено: модуль снова называется `Autofarm`, а вкладка — **FoxAutofarm**. Полный код модуля `autofarm.lua` (замените им старый файл):
-
-```lua
 -- [[ MM2 FOXAUTOFARM – Integrated Cheats & AutoFarm ]] --
 local Autofarm = {}
 
@@ -392,6 +389,3 @@ function Autofarm.Init(GlobalConfig, UI, Lang)
 end
 
 return Autofarm
-```
-
-Теперь вкладка **🦊 FoxAutofarm** снова появится, и все функции будут работать прямо внутри вашего меню.
