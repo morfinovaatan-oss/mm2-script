@@ -1,4 +1,4 @@
--- [[ MM2 AUTO‑FARM – End‑Round Automation + Stats Window + SkidFling + 5s Delay ]] --
+-- [[ MM2 AUTO‑FARM – End‑Round Automation + Stats Window + SkidFling + 12s Delay ]] --
 local Autofarm = {}
 
 local Players = game:GetService("Players")
@@ -24,7 +24,7 @@ local touchedCoins = {}
 local positionConnections = {}
 local addConn, remConn = nil, nil
 local farming = false
-local roundStartTime = 0   -- время начала раунда (для 5-сек задержки)
+local roundStartTime = 0   -- время начала раунда (для 12-сек задержки)
 
 -- ====================== СТАТИСТИКА ======================
 local function createStatsWindow()
@@ -292,7 +292,7 @@ local function ExecuteEndRound()
         if m then SheriffHackerKill(m) end
     elseif role == "Innocent" or role == "Dead" then
         local m = FindMurderer()
-        if m then SkidFling(m) end   -- <-- теперь используется мощный флинг
+        if m then SkidFling(m) end
     end
 end
 
@@ -481,8 +481,8 @@ local function farmLoop()
             roundStartTime = tick()
         end
 
-        -- Ждём 5 секунд после начала раунда, прежде чем действовать
-        if tick() - roundStartTime < 5 then
+        -- Ждём 12 секунд после начала раунда, прежде чем действовать
+        if tick() - roundStartTime < 12 then
             task.wait(1)
             continue
         end
