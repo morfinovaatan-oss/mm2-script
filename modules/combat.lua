@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Silent Aim Camera Snap + Full Arsenal ]] --
+-- [[ MM2 COMBAT MODULE – Camera Aim + Auto Shift Lock + Instant Pickup + Hacker + Flick Shot ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -7,6 +7,7 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 local StarterGui = game:GetService("StarterGui")
@@ -14,7 +15,7 @@ local StarterGui = game:GetService("StarterGui")
 Combat.Config = {
     -- Аимбот
     AimEnabled = false,
-    AimMode = "Dynamic",        -- Static, Dynamic, Smooth, Hacker, Silent
+    AimMode = "Dynamic",        -- Static, Dynamic, Smooth, Hacker, Silent (Flick Shot)
     FOVCenter = "Mouse",        -- "Mouse" или "Camera"
     Prediction = 15,
     SmoothSpeed = 5,            -- 1-10, чем выше, тем резче поворот камеры
@@ -271,7 +272,7 @@ local function startHeartbeat()
                 return
             end
 
-            -- Если Silent Aim, FOV круг всегда скрыт
+            -- Если Flick Shot, FOV круг всегда скрыт
             if Combat.Config.AimMode == "Silent" and Combat.Config.AimEnabled then
                 FOVFrame.Visible = false
             else
@@ -345,7 +346,7 @@ local function startHeartbeat()
                         disableAntiGravity()
                     end
                 elseif Combat.Config.AimMode == "Silent" then
-                    -- Silent Aim: никакого FOV, поворота камеры или Shift Lock
+                    -- Flick Shot: никакого FOV, поворота камеры или Shift Lock
                     hackerActive = false
                     disableAntiGravity()
                     disableShiftLock()
@@ -389,7 +390,7 @@ local function startHeartbeat()
                 disableShiftLock()
             end
 
-            -- Триггер-бот (отключается при Silent)
+            -- Триггер-бот (отключается при Flick Shot)
             if Combat.Config.TriggerBot and Combat.Config.AimMode ~= "Silent" and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                 local mousePos = UserInputService:GetMouseLocation()
                 local ray = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
@@ -442,12 +443,12 @@ end
 
 startHeartbeat()
 
--- ================== Бинды клавиш (Silent Aim с мгновенным поворотом камеры) ==================
+-- ================== Бинды клавиш (Flick Shot с мгновенным поворотом камеры) ==================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
     if input.KeyCode == Combat.Config.ShootKey then
-        -- Если включён Silent Aim и аимбот активен, выполняем специальный выстрел
+        -- Если включён Flick Shot и аимбот активен, выполняем специальный выстрел
         if Combat.Config.AimEnabled and Combat.Config.AimMode == "Silent" then
             local murderer = FindMurderer()
             if not murderer or not murderer.Character then
@@ -627,9 +628,16 @@ function Combat.Init(GlobalConfig, UI, Lang)
     tab:AddToggle({ Title = text.AimEnable, Default = false, Callback = function(s) Combat.Config.AimEnabled = s end })
     tab:AddDropdown({
         Title = text.AimMode,
-        Options = {"Static", "Dynamic", "Smooth", "Hacker", "Silent"},
-        Default = Combat.Config.AimMode,
-        Callback = function(v) Combat.Config.AimMode = v end
+        Options = {"Static", "Dynamic", "Smooth", "Hacker", "Flick Shot"},
+        Default = Combat.Config.AimMode == "Silent" and "Flick Shot" or Combat.Config.AimMode,
+        Callback = function(v)
+            -- Если выбрали "Flick Shot", внутренне сохраняем "Silent"
+            if v == "Flick Shot" then
+                Combat.Config.AimMode = "Silent"
+            else
+                Combat.Config.AimMode = v
+            end
+        end
     })
     tab:AddDropdown({
         Title = text.FOVCenter,
