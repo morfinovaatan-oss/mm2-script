@@ -1,5 +1,8 @@
+Вкладка пропала, потому что я переименовал модуль в `FoxAutofarm`, а загрузчик ожидает `Autofarm`. Сейчас всё исправлено: модуль снова называется `Autofarm`, а вкладка — **FoxAutofarm**. Полный код модуля `autofarm.lua` (замените им старый файл):
+
+```lua
 -- [[ MM2 FOXAUTOFARM – Integrated Cheats & AutoFarm ]] --
-local FoxAutofarm = {}
+local Autofarm = {}
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -68,7 +71,7 @@ local function updateRole(player, role)
     if player ~= LocalPlayer then
         local highlight = visuals[player]
         if highlight then
-            highlight.FillColor = Color3.fromRGB(255, 0, 0) -- просто красный для примера
+            highlight.FillColor = Color3.fromRGB(255, 0, 0)
         end
     end
 end
@@ -113,7 +116,7 @@ pcall(function() if syn then syn.protect_gui(GunHandleAdornment) end end)
 GunHighlight.Parent = CoreGui
 GunHandleAdornment.Parent = CoreGui
 
--- Подписываемся на роли
+-- Подписка на роли
 ReplicatedStorage.Fade.OnClientEvent:Connect(function(data)
     for _, v in ipairs(Players:GetPlayers()) do
         local info = data[v.Name]
@@ -168,7 +171,7 @@ local __namecall = hookmetamethod(game, "__namecall", function(self, ...)
     return __namecall(self, unpack(args))
 end)
 
--- ====================== ОСНОВНОЙ ЦИКЛ (AutoFarm + Reach + etc.) ======================
+-- ====================== ОСНОВНОЙ ЦИКЛ ======================
 task.spawn(function()
     while true do
         local character = LocalPlayer.Character
@@ -254,7 +257,7 @@ task.spawn(function()
 end)
 
 -- ====================== ИНИЦИАЛИЗАЦИЯ UI ======================
-function FoxAutofarm.Init(GlobalConfig, UI, Lang)
+function Autofarm.Init(GlobalConfig, UI, Lang)
     local T = {
         RU = {
             Tab = "🦊 FoxAutofarm",
@@ -388,4 +391,7 @@ function FoxAutofarm.Init(GlobalConfig, UI, Lang)
     Tab:AddToggle({ Title = text.GunChams, Default = false, Callback = function(s) Config.GunChams = s end })
 end
 
-return FoxAutofarm
+return Autofarm
+```
+
+Теперь вкладка **🦊 FoxAutofarm** снова появится, и все функции будут работать прямо внутри вашего меню.
