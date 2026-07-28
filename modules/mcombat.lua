@@ -1,4 +1,4 @@
--- [[ MM2 MURDERER COMBAT MODULE – Fixed Kill Mechanics (no aimbot, no shiftlock) ]] --
+-- [[ MM2 MURDERER COMBAT MODULE – Reliable Kill Mechanics (Summon + Kill) ]] --
 local MCombat = {}
 
 local Players = game:GetService("Players")
@@ -51,29 +51,33 @@ local function FindSheriff()
     return nil
 end
 
-local function GetAlivePlayers()
-    local alive = {}
+local function GetAllPlayers()
+    local all = {}
     for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
-            table.insert(alive, p)
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            table.insert(all, p)
         end
     end
-    return alive
+    return all
 end
 
--- Убить одного игрока (телепорт прямо в него и серия ударов)
+-- Телепортировать игрока к нашей позиции
+local function summonPlayer(targetPlayer)
+    if not targetPlayer or not targetPlayer.Character then return end
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local myRoot = char.HumanoidRootPart
+    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then return end
+    targetRoot.CFrame = myRoot.CFrame + Vector3.new(math.random(-2,2), 0, math.random(-2,2))
+end
+
+-- Убить одного игрока (серия ударов)
 local function killPlayer(targetPlayer)
     if not targetPlayer or not targetPlayer.Character then return end
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    local root = char.HumanoidRootPart
-    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not targetRoot then return end
-
     equipKnife()
-    -- Телепорт прямо в позицию цели (без смещения вверх)
-    root.CFrame = targetRoot.CFrame
-    task.wait(0.05)
 
     local start = tick()
     while targetPlayer.Character and targetPlayer.Character:FindFirstChildOfClass("Humanoid") and targetPlayer.Character.Humanoid.Health > 0 do
@@ -83,18 +87,20 @@ local function killPlayer(targetPlayer)
     end
 end
 
--- Kill Sheriff один раз
+-- Убить шерифа (призвать + убить)
 local function killSheriffOnce()
     if killInProgress then return end
     killInProgress = true
     local sheriff = FindSheriff()
     if sheriff then
+        summonPlayer(sheriff)
+        task.wait(0.1)
         killPlayer(sheriff)
     end
     killInProgress = false
 end
 
--- Kill All: телепортируем всех живых к себе, затем убиваем
+-- Убить всех (10 раз призвать всех игроков, затем убить живых)
 local function killAllOnce()
     if killInProgress then return end
     killInProgress = true
@@ -103,24 +109,28 @@ local function killAllOnce()
         killInProgress = false
         return
     end
-    local myRoot = char.HumanoidRootPart
     equipKnife()
 
-    local alivePlayers = GetAlivePlayers()
-    -- Сначала телепортируем всех ко мне
-    for _, player in ipairs(alivePlayers) do
-        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            player.Character.HumanoidRootPart.CFrame = myRoot.CFrame + Vector3.new(math.random(-2,2), 0, math.random(-2,2))
+    -- 10 раз призываем всех игроков (живых и мёртвых) для надёжности
+    for _ = 1, 10 do
+        if not MCombat.Config.KillAll then break end
+        local allPlayers = GetAllPlayers()
+        for _, player in ipairs(allPlayers) do
+            summonPlayer(player)
         end
+        task.wait(0.05)
     end
-    task.wait(0.1)
 
-    -- Теперь быстро атакуем всех, кто рядом
+    -- Теперь убиваем всех, кто жив
+    local alivePlayers = GetAllPlayers()
     for _, player in ipairs(alivePlayers) do
         if not MCombat.Config.KillAll then break end
-        killPlayer(player)
-        task.wait(0.2)
+        if player.Character and player.Character:FindFirstChildOfClass("Humanoid") and player.Character.Humanoid.Health > 0 then
+            killPlayer(player)
+        end
+        task.wait(0.1)
     end
+
     MCombat.Config.KillAll = false
     killInProgress = false
 end
