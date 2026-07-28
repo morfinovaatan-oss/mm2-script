@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Camera Aim + Auto Shift Lock + Instant Pickup + Hacker + Silent Aim ]] --
+-- [[ MM2 COMBAT MODULE – Silent Aim via GunFired + Full Arsenal ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -7,6 +7,7 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 local StarterGui = game:GetService("StarterGui")
@@ -254,23 +255,6 @@ local function disableAntiGravity()
     end
 end
 
--- ================== RemoteEvent для Silent Aim ==================
-local function getShootRemote()
-    local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-    if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
-        local remote = tool:FindFirstChildOfClass("RemoteEvent")
-        if remote then return remote end
-    end
-    local names = {"ShootGun", "Shoot", "FireGun", "GunEvent", "ShootEvent"}
-    for _, name in ipairs(names) do
-        local ev = game:GetService("ReplicatedStorage"):FindFirstChild(name, true)
-        if ev and ev:IsA("RemoteEvent") then
-            return ev
-        end
-    end
-    return nil
-end
-
 -- ================== Единый Heartbeat ==================
 local heartbeatConnection
 local function startHeartbeat()
@@ -459,48 +443,70 @@ end
 
 startHeartbeat()
 
--- ================== Бинды клавиш ==================
+-- ================== Бинды клавиш (Silent Aim через GunFired) ==================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
     if input.KeyCode == Combat.Config.ShootKey then
-        -- Если включён Silent Aim и аимбот активен, выполняем специальный выстрел
+        -- Если включён Silent Aim и аимбот активен, выполняем специальный выстрел через GunFired
         if Combat.Config.AimEnabled and Combat.Config.AimMode == "Silent" then
             local murderer = FindMurderer()
-            if murderer and murderer.Character then
-                local torso = murderer.Character:FindFirstChild("UpperTorso") or murderer.Character:FindFirstChild("HumanoidRootPart")
-                if torso then
-                    local targetPos = torso.Position
-                    -- Предикшн
-                    local root = murderer.Character:FindFirstChild("HumanoidRootPart")
-                    if root and Combat.Config.Prediction > 0 then
-                        targetPos = targetPos + root.Velocity * (Combat.Config.Prediction / 1000)
-                    end
-                    -- Экипируем пистолет, если нужно
-                    if Combat.Config.AutoEquipGun then
-                        local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-                        if not tool or tool.Name ~= "Gun" then
-                            local backpack = LocalPlayer:FindFirstChild("Backpack")
-                            local gun = backpack and backpack:FindFirstChild("Gun")
-                            if gun and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-                                LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):EquipTool(gun)
-                            end
+            if not murderer or not murderer.Character then
+                SimulateClick()
+                return
+            end
+
+            local torso = murderer.Character:FindFirstChild("UpperTorso") or murderer.Character:FindFirstChild("HumanoidRootPart")
+            if not torso then
+                SimulateClick()
+                return
+            end
+
+            local targetPos = torso.Position
+            -- Предикшн
+            local root = murderer.Character:FindFirstChild("HumanoidRootPart")
+            if root and Combat.Config.Prediction > 0 then
+                targetPos = targetPos + root.Velocity * (Combat.Config.Prediction / 1000)
+            end
+
+            -- Авто-экипировка пистолета, если включена
+            if Combat.Config.AutoEquipGun then
+                local char = LocalPlayer.Character
+                if char then
+                    local tool = char:FindFirstChildOfClass("Tool")
+                    if not tool or tool.Name ~= "Gun" then
+                        local backpack = LocalPlayer:FindFirstChild("Backpack")
+                        local gun = backpack and backpack:FindFirstChild("Gun")
+                        if gun and char:FindFirstChildOfClass("Humanoid") then
+                            char:FindFirstChildOfClass("Humanoid"):EquipTool(gun)
                         end
                     end
-                    -- Отправляем выстрел через RemoteEvent, если есть
-                    local remote = getShootRemote()
-                    if remote then
-                        remote:FireServer(targetPos)
-                    else
-                        -- Запасной вариант: обычный клик (не Silent, но хоть что-то)
-                        SimulateClick()
-                    end
-                    return
                 end
             end
-            -- Если мёрдер не найден, делаем обычный выстрел
-            SimulateClick()
+
+            -- Ищем родной RemoteEvent игры (GunFired)
+            local gunFiredEvent = nil
+            local weaponService = ReplicatedStorage:FindFirstChild("ClientServices")
+            if weaponService then
+                local weaponModule = weaponService:FindFirstChild("WeaponService")
+                if weaponModule then
+                    gunFiredEvent = weaponModule:FindFirstChild("GunFired")
+                end
+            end
+            -- Запасной путь: иногда GunFired может лежать прямо в ReplicatedStorage
+            if not gunFiredEvent then
+                gunFiredEvent = ReplicatedStorage:FindFirstChild("GunFired", true)
+            end
+
+            if gunFiredEvent and gunFiredEvent:IsA("RemoteEvent") then
+                -- Отправляем CFrame цели (как это делает оригинальная игра)
+                gunFiredEvent:FireServer(CFrame.new(targetPos))
+            else
+                -- Если не нашли, используем запасной метод (обычный клик)
+                SimulateClick()
+            end
         else
+            -- Обычный выстрел
             SimulateClick()
         end
     elseif input.KeyCode == Combat.Config.PickupKey then
