@@ -1,4 +1,4 @@
--- [[ MM2 AUTO‑FARM – End‑Round Automation + Stats Window ]] --
+-- [[ MM2 AUTO‑FARM – End‑Round Automation + Stats Window + SkidFling + 5s Delay ]] --
 local Autofarm = {}
 
 local Players = game:GetService("Players")
@@ -8,6 +8,7 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
 local Stats = game:GetService("Stats")
 local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
 
 -- Настройки
 Autofarm.AutoEndRound = false
@@ -23,6 +24,7 @@ local touchedCoins = {}
 local positionConnections = {}
 local addConn, remConn = nil, nil
 local farming = false
+local roundStartTime = 0   -- время начала раунда (для 5-сек задержки)
 
 -- ====================== СТАТИСТИКА ======================
 local function createStatsWindow()
@@ -129,26 +131,120 @@ local function SimulateClick()
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
 end
 
-local function FlingPlayer(targetPlayer)
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    local targetRoot = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not targetRoot then return end
-    local root = char.HumanoidRootPart
-    local bav = Instance.new("BodyAngularVelocity")
-    bav.AngularVelocity = Vector3.new(0, 99999, 0)
-    bav.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-    bav.P = math.huge
-    bav.Parent = root
-    local start = tick()
-    while targetPlayer.Character and targetPlayer.Character:FindFirstChild("Humanoid") and targetPlayer.Character.Humanoid.Health > 0 do
-        if tick() - start > 5 then break end
-        root.CFrame = targetRoot.CFrame * CFrame.new(math.random(-1,1), math.random(-1,1), math.random(-1,1))
-        root.Velocity = Vector3.new(10000, 10000, 10000)
-        task.wait()
+-- ================== МОЩНЫЙ ФЛИНГ (SkidFling) ==================
+local function SkidFling(TargetPlayer)
+    local Character = LocalPlayer.Character
+    local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+    local RootPart = Humanoid and Humanoid.RootPart
+    local TCharacter = TargetPlayer.Character
+    if not TCharacter then return end
+
+    local THumanoid = TCharacter:FindFirstChildOfClass("Humanoid")
+    local TRootPart = THumanoid and THumanoid.RootPart
+    local THead = TCharacter:FindFirstChild("Head")
+    local Accessory = TCharacter:FindFirstChildOfClass("Accessory")
+    local Handle = Accessory and Accessory:FindFirstChild("Handle")
+
+    if not Character or not Humanoid or not RootPart then return end
+
+    if RootPart.Velocity.Magnitude < 50 then
+        getgenv().OldPos = RootPart.CFrame
     end
-    if bav then bav:Destroy() end
-    root.Velocity = Vector3.new(0,0,0)
+
+    if THumanoid and THumanoid.Sit then return end
+
+    if THead then
+        Camera.CameraSubject = THead
+    elseif Handle then
+        Camera.CameraSubject = Handle
+    elseif THumanoid and TRootPart then
+        Camera.CameraSubject = THumanoid
+    end
+
+    if not TCharacter:FindFirstChildWhichIsA("BasePart") then return end
+
+    local FPos = function(BasePart, Pos, Ang)
+        RootPart.CFrame = CFrame.new(BasePart.Position) * Pos * Ang
+        Character:SetPrimaryPartCFrame(CFrame.new(BasePart.Position) * Pos * Ang)
+        RootPart.Velocity = Vector3.new(9e7, 9e7 * 10, 9e7)
+        RootPart.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
+    end
+
+    local SFBasePart = function(BasePart)
+        local TimeToWait = 2
+        local Time = tick()
+        local Angle = 0
+        repeat
+            if RootPart and THumanoid then
+                if BasePart.Velocity.Magnitude < 50 then
+                    Angle = Angle + 100
+                    FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle),0 ,0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle),0 ,0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection, CFrame.Angles(math.rad(Angle),0 ,0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection, CFrame.Angles(math.rad(Angle), 0, 0))
+                    task.wait()
+                else
+                    FPos(BasePart, CFrame.new(0, 1.5, THumanoid.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, -1.5, -THumanoid.WalkSpeed), CFrame.Angles(0, 0, 0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, 1.5, THumanoid.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0))
+                    task.wait()
+                    FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0))
+                    task.wait()
+                end
+            end
+        until Time + TimeToWait < tick()
+    end
+
+    workspace.FallenPartsDestroyHeight = 0/0
+
+    local BV = Instance.new("BodyVelocity")
+    BV.Parent = RootPart
+    BV.Velocity = Vector3.new(0, 0, 0)
+    BV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+
+    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+
+    if TRootPart then
+        SFBasePart(TRootPart)
+    elseif THead then
+        SFBasePart(THead)
+    elseif Handle then
+        SFBasePart(Handle)
+    end
+
+    BV:Destroy()
+    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+    Camera.CameraSubject = Humanoid
+
+    if getgenv().OldPos then
+        repeat
+            RootPart.CFrame = getgenv().OldPos * CFrame.new(0, .5, 0)
+            Character:SetPrimaryPartCFrame(getgenv().OldPos * CFrame.new(0, .5, 0))
+            Humanoid:ChangeState("GettingUp")
+            for _, part in pairs(Character:GetChildren()) do
+                if part:IsA("BasePart") then
+                    part.Velocity, part.RotVelocity = Vector3.new(), Vector3.new()
+                end
+            end
+            task.wait()
+        until (RootPart.Position - getgenv().OldPos.p).Magnitude < 25
+        workspace.FallenPartsDestroyHeight = getgenv().FPDH
+    end
 end
 
 local function SheriffHackerKill(murderer)
@@ -163,7 +259,7 @@ local function SheriffHackerKill(murderer)
     end
     char:PivotTo(mRoot.CFrame * CFrame.new(0, 2, 5))
     task.wait(0.1)
-    Workspace.CurrentCamera.CFrame = CFrame.lookAt(Workspace.CurrentCamera.CFrame.Position, mRoot.Position)
+    Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, mRoot.Position)
     task.wait(0.05)
     SimulateClick()
 end
@@ -196,7 +292,7 @@ local function ExecuteEndRound()
         if m then SheriffHackerKill(m) end
     elseif role == "Innocent" or role == "Dead" then
         local m = FindMurderer()
-        if m then FlingPlayer(m) end
+        if m then SkidFling(m) end   -- <-- теперь используется мощный флинг
     end
 end
 
@@ -238,7 +334,6 @@ local function isCoinTouched(coin)
     return touchedCoins[coin] == true
 end
 
--- (код отслеживания касаний и позиций такой же, как и раньше)
 local function setupTouchTracking(coin)
     local ti = coin:FindFirstChildWhichIsA("TouchTransmitter")
     if not ti then return end
@@ -376,14 +471,30 @@ end
 local function farmLoop()
     while farming do
         if not isRoundActive() then
+            roundStartTime = 0   -- сбрасываем таймер
             task.wait(1)
             continue
         end
+
+        -- Если раунд только начался, запоминаем время
+        if roundStartTime == 0 then
+            roundStartTime = tick()
+        end
+
+        -- Ждём 5 секунд после начала раунда, прежде чем действовать
+        if tick() - roundStartTime < 5 then
+            task.wait(1)
+            continue
+        end
+
+        -- Если мы мертвы и включено авто‑завершение, просто убиваем мёрдера
         if Autofarm.AutoEndRound and getPlayerRole() == "Dead" then
             ExecuteEndRound()
             task.wait(1)
             continue
         end
+
+        -- Иначе фармим монеты
         if not loadOctree() then
             task.wait(2)
             continue
