@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Silent Aim via GunFired + Full Arsenal ]] --
+-- [[ MM2 COMBAT MODULE – Silent Aim via Instant Mouse Move + Full Arsenal ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -443,12 +443,12 @@ end
 
 startHeartbeat()
 
--- ================== Бинды клавиш (Silent Aim через GunFired) ==================
+-- ================== Бинды клавиш (Silent Aim с мгновенным движением мыши) ==================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
     if input.KeyCode == Combat.Config.ShootKey then
-        -- Если включён Silent Aim и аимбот активен, выполняем специальный выстрел через GunFired
+        -- Если включён Silent Aim и аимбот активен, выполняем специальный выстрел
         if Combat.Config.AimEnabled and Combat.Config.AimMode == "Silent" then
             local murderer = FindMurderer()
             if not murderer or not murderer.Character then
@@ -463,7 +463,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             end
 
             local targetPos = torso.Position
-            -- Предикшн
             local root = murderer.Character:FindFirstChild("HumanoidRootPart")
             if root and Combat.Config.Prediction > 0 then
                 targetPos = targetPos + root.Velocity * (Combat.Config.Prediction / 1000)
@@ -488,32 +487,17 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             local char = LocalPlayer.Character
             local tool = char and char:FindFirstChildOfClass("Tool")
             if not tool or (tool.Name ~= "Gun" and not tool:FindFirstChild("Gun")) then
-                -- Если нет пистолета, обычный клик
                 SimulateClick()
                 return
             end
 
-            -- Ищем родной RemoteEvent игры (GunFired)
-            local gunFiredEvent = nil
-            local weaponService = ReplicatedStorage:FindFirstChild("ClientServices")
-            if weaponService then
-                local weaponModule = weaponService:FindFirstChild("WeaponService")
-                if weaponModule then
-                    gunFiredEvent = weaponModule:FindFirstChild("GunFired")
-                end
+            -- Перемещаем мышь на экранные координаты торса мёрдера
+            local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
+            if onScreen then
+                VirtualInputManager:SendMouseMoveEvent(screenPos.X, screenPos.Y, game)
+                task.wait(0.01)  -- даём игре зарегистрировать позицию мыши
             end
-            -- Запасной путь
-            if not gunFiredEvent then
-                gunFiredEvent = ReplicatedStorage:FindFirstChild("GunFired", true)
-            end
-
-            if gunFiredEvent and gunFiredEvent:IsA("RemoteEvent") then
-                -- Передаём направление выстрела: из позиции камеры в цель (как в оригинале)
-                gunFiredEvent:FireServer(CFrame.new(Camera.CFrame.Position, targetPos))
-            else
-                -- Запасной выстрел
-                SimulateClick()
-            end
+            SimulateClick()  -- честный выстрел (игра думает, что вы целитесь в мёрдера)
         else
             -- Обычный выстрел
             SimulateClick()
