@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Camera Aim + Auto Shift Lock + Instant Pickup + Hacker ]] --
+-- [[ MM2 COMBAT MODULE – Camera Aim + Auto Shift Lock + Instant Pickup + Hacker + Silent Aim ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -14,7 +14,7 @@ local StarterGui = game:GetService("StarterGui")
 Combat.Config = {
     -- Аимбот
     AimEnabled = false,
-    AimMode = "Dynamic",        -- Static, Dynamic, Smooth, Hacker
+    AimMode = "Dynamic",        -- Static, Dynamic, Smooth, Hacker, Silent
     FOVCenter = "Mouse",        -- "Mouse" или "Camera"
     Prediction = 15,
     SmoothSpeed = 5,            -- 1-10, чем выше, тем резче поворот камеры
@@ -78,7 +78,6 @@ end
 local function enableShiftLock()
     if shiftLockActive then return end
     if not Combat.Config.AutoShiftLock then return end
-    -- Отправляем нажатие Shift (KeyCode.LeftShift)
     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
     VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
     shiftLockActive = true
@@ -86,8 +85,6 @@ end
 
 local function disableShiftLock()
     if not shiftLockActive then return end
-    -- Отправляем ещё раз, чтобы переключить обратно, если нужно. 
-    -- Обычно Shift Lock переключается по нажатию, поэтому дважды нажмём.
     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
     VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
     shiftLockActive = false
@@ -257,6 +254,23 @@ local function disableAntiGravity()
     end
 end
 
+-- ================== RemoteEvent для Silent Aim ==================
+local function getShootRemote()
+    local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+    if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
+        local remote = tool:FindFirstChildOfClass("RemoteEvent")
+        if remote then return remote end
+    end
+    local names = {"ShootGun", "Shoot", "FireGun", "GunEvent", "ShootEvent"}
+    for _, name in ipairs(names) do
+        local ev = game:GetService("ReplicatedStorage"):FindFirstChild(name, true)
+        if ev and ev:IsA("RemoteEvent") then
+            return ev
+        end
+    end
+    return nil
+end
+
 -- ================== Единый Heartbeat ==================
 local heartbeatConnection
 local function startHeartbeat()
@@ -274,9 +288,14 @@ local function startHeartbeat()
                 return
             end
 
-            FOVFrame.Size = UDim2.new(0, Combat.Config.FOV * 2, 0, Combat.Config.FOV * 2)
-            FOVStroke.Transparency = Combat.Config.FOVTransparency
-            FOVFrame.Visible = Combat.Config.AimEnabled
+            -- Если Silent Aim, FOV круг всегда скрыт
+            if Combat.Config.AimMode == "Silent" and Combat.Config.AimEnabled then
+                FOVFrame.Visible = false
+            else
+                FOVFrame.Size = UDim2.new(0, Combat.Config.FOV * 2, 0, Combat.Config.FOV * 2)
+                FOVStroke.Transparency = Combat.Config.FOVTransparency
+                FOVFrame.Visible = Combat.Config.AimEnabled
+            end
 
             local hasGun = IsLocalSheriff()
 
@@ -342,6 +361,12 @@ local function startHeartbeat()
                         hackerActive = false
                         disableAntiGravity()
                     end
+                elseif Combat.Config.AimMode == "Silent" then
+                    -- Silent Aim: никакого FOV, поворота камеры или Shift Lock
+                    hackerActive = false
+                    disableAntiGravity()
+                    disableShiftLock()
+                    -- AutoShot в этом режиме не работает (стрельба только по кнопке)
                 else
                     -- Стандартные режимы (Static, Dynamic, Smooth) с поворотом камеры и Shift Lock
                     hackerActive = false
@@ -349,10 +374,8 @@ local function startHeartbeat()
                     local target = GetAimTarget()
                     local targetPos = target and target.Position
                     if targetPos then
-                        -- Включаем Shift Lock при обнаружении цели
                         enableShiftLock()
 
-                        -- Предсказание
                         if Combat.Config.Prediction > 0 then
                             local root = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
                             if root then
@@ -360,14 +383,12 @@ local function startHeartbeat()
                             end
                         end
 
-                        -- Поворот камеры
                         if Combat.Config.AimMode == "Static" then
                             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
                         elseif Combat.Config.AimMode == "Smooth" or Combat.Config.AimMode == "Dynamic" then
                             SmoothAim(targetPos)
                         end
 
-                        -- Авто‑выстрел
                         if Combat.Config.AutoShot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                             local tool = char:FindFirstChildOfClass("Tool")
                             if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
@@ -376,7 +397,6 @@ local function startHeartbeat()
                             end
                         end
                     else
-                        -- Цели нет – выключаем Shift Lock
                         disableShiftLock()
                     end
                 end
@@ -386,8 +406,8 @@ local function startHeartbeat()
                 disableShiftLock()
             end
 
-            -- Триггер-бот
-            if Combat.Config.TriggerBot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
+            -- Триггер-бот (отключается при Silent)
+            if Combat.Config.TriggerBot and Combat.Config.AimMode ~= "Silent" and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                 local mousePos = UserInputService:GetMouseLocation()
                 local ray = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
                 local params = RaycastParams.new()
@@ -444,7 +464,45 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
     if input.KeyCode == Combat.Config.ShootKey then
-        SimulateClick()
+        -- Если включён Silent Aim и аимбот активен, выполняем специальный выстрел
+        if Combat.Config.AimEnabled and Combat.Config.AimMode == "Silent" then
+            local murderer = FindMurderer()
+            if murderer and murderer.Character then
+                local torso = murderer.Character:FindFirstChild("UpperTorso") or murderer.Character:FindFirstChild("HumanoidRootPart")
+                if torso then
+                    local targetPos = torso.Position
+                    -- Предикшн
+                    local root = murderer.Character:FindFirstChild("HumanoidRootPart")
+                    if root and Combat.Config.Prediction > 0 then
+                        targetPos = targetPos + root.Velocity * (Combat.Config.Prediction / 1000)
+                    end
+                    -- Экипируем пистолет, если нужно
+                    if Combat.Config.AutoEquipGun then
+                        local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                        if not tool or tool.Name ~= "Gun" then
+                            local backpack = LocalPlayer:FindFirstChild("Backpack")
+                            local gun = backpack and backpack:FindFirstChild("Gun")
+                            if gun and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+                                LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):EquipTool(gun)
+                            end
+                        end
+                    end
+                    -- Отправляем выстрел через RemoteEvent, если есть
+                    local remote = getShootRemote()
+                    if remote then
+                        remote:FireServer(targetPos)
+                    else
+                        -- Запасной вариант: обычный клик (не Silent, но хоть что-то)
+                        SimulateClick()
+                    end
+                    return
+                end
+            end
+            -- Если мёрдер не найден, делаем обычный выстрел
+            SimulateClick()
+        else
+            SimulateClick()
+        end
     elseif input.KeyCode == Combat.Config.PickupKey then
         local map = getMap()
         local gunDrop = map and map:FindFirstChild("GunDrop")
@@ -569,7 +627,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
     tab:AddToggle({ Title = text.AimEnable, Default = false, Callback = function(s) Combat.Config.AimEnabled = s end })
     tab:AddDropdown({
         Title = text.AimMode,
-        Options = {"Static", "Dynamic", "Smooth", "Hacker"},
+        Options = {"Static", "Dynamic", "Smooth", "Hacker", "Silent"},
         Default = Combat.Config.AimMode,
         Callback = function(v) Combat.Config.AimMode = v end
     })
