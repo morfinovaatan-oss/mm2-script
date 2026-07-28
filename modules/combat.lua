@@ -484,6 +484,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 end
             end
 
+            -- Убедимся, что в руках пистолет
+            local char = LocalPlayer.Character
+            local tool = char and char:FindFirstChildOfClass("Tool")
+            if not tool or (tool.Name ~= "Gun" and not tool:FindFirstChild("Gun")) then
+                -- Если нет пистолета, обычный клик
+                SimulateClick()
+                return
+            end
+
             -- Ищем родной RemoteEvent игры (GunFired)
             local gunFiredEvent = nil
             local weaponService = ReplicatedStorage:FindFirstChild("ClientServices")
@@ -493,16 +502,16 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                     gunFiredEvent = weaponModule:FindFirstChild("GunFired")
                 end
             end
-            -- Запасной путь: иногда GunFired может лежать прямо в ReplicatedStorage
+            -- Запасной путь
             if not gunFiredEvent then
                 gunFiredEvent = ReplicatedStorage:FindFirstChild("GunFired", true)
             end
 
             if gunFiredEvent and gunFiredEvent:IsA("RemoteEvent") then
-                -- Отправляем CFrame цели (как это делает оригинальная игра)
-                gunFiredEvent:FireServer(CFrame.new(targetPos))
+                -- Передаём направление выстрела: из позиции камеры в цель (как в оригинале)
+                gunFiredEvent:FireServer(CFrame.new(Camera.CFrame.Position, targetPos))
             else
-                -- Если не нашли, используем запасной метод (обычный клик)
+                -- Запасной выстрел
                 SimulateClick()
             end
         else
