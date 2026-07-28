@@ -1,4 +1,4 @@
--- [[ MM2 AUTO‑FARM – End‑Round Automation + Stats Window + SkidFling + 12s Delay ]] --
+-- [[ MM2 AUTO‑FARM – Fixed Start & Logic ]] --
 local Autofarm = {}
 
 local Players = game:GetService("Players")
@@ -24,7 +24,7 @@ local touchedCoins = {}
 local positionConnections = {}
 local addConn, remConn = nil, nil
 local farming = false
-local roundStartTime = 0   -- время начала раунда (для задержки)
+local roundStartTime = 0
 
 -- ====================== СТАТИСТИКА ======================
 local function createStatsWindow()
@@ -426,7 +426,6 @@ local function collectCoins()
             and gui.Game.CoinBags.Container:FindFirstChild("SnowToken") 
             and gui.Game.CoinBags.Container.SnowToken:FindFirstChild("FullBagIcon")
         if fullBagIcon and fullBagIcon.Visible then
-            -- Мешок полон – запускаем завершение раунда, если включено
             while isRoundActive() and farming do
                 if Autofarm.AutoEndRound then
                     ExecuteEndRound()
@@ -435,7 +434,6 @@ local function collectCoins()
             end
             break
         end
-
         local char = LocalPlayer.Character
         if not char or not char.PrimaryPart then task.wait(0.5); continue end
         local root = char.PrimaryPart
@@ -473,29 +471,32 @@ end
 local function farmLoop()
     while farming do
         if not isRoundActive() then
-            roundStartTime = 0   -- сбрасываем таймер
+            roundStartTime = 0
             task.wait(1)
             continue
         end
 
-        -- Если раунд только начался, запоминаем время
         if roundStartTime == 0 then
             roundStartTime = tick()
         end
 
-        -- Ждём 12 секунд после начала раунда, прежде чем начать сбор
+        -- Ждём 12 секунд после начала раунда
         if tick() - roundStartTime < 12 then
             task.wait(1)
             continue
         end
 
-        -- Фармим только если персонаж жив
         local role = getPlayerRole()
+        -- Если игрок мёртв и включено авто-завершение, сразу завершаем раунд
         if role == "Dead" then
-            task.wait(2)   -- просто ждём, ничего не делаем
+            if Autofarm.AutoEndRound then
+                ExecuteEndRound()
+            end
+            task.wait(1)
             continue
         end
 
+        -- Игрок жив – начинаем фарм
         if not loadOctree() then
             task.wait(2)
             continue
