@@ -29,8 +29,6 @@ local Config = {
     LockKey = Enum.KeyCode.LeftControl,
     PlayerChams = true,
     GunChams = false,
-    Callouts = false,
-    CalloutMessage = "Murderer is ${murderer}, Sheriff is ${sheriff}",
 }
 
 -- ====================== ПЕРЕМЕННЫЕ ======================
