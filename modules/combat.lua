@@ -1,4 +1,4 @@
--- [[ MM2 COMBAT MODULE – Mouse Aimbot + Hacker Mode + Instant Pickup ]] --
+-- [[ MM2 COMBAT MODULE – Camera Aim + Auto Shift Lock + Instant Pickup + Hacker ]] --
 local Combat = {}
 
 local Players = game:GetService("Players")
@@ -17,10 +17,11 @@ Combat.Config = {
     AimMode = "Dynamic",        -- Static, Dynamic, Smooth, Hacker
     FOVCenter = "Mouse",        -- "Mouse" или "Camera"
     Prediction = 15,
-    SmoothSpeed = 5,            -- 1-10, чем выше, тем резче движение мыши
+    SmoothSpeed = 5,            -- 1-10, чем выше, тем резче поворот камеры
     FOV = 120,
     FOVTransparency = 0.5,
     TriggerBot = false,
+    AutoShiftLock = true,       -- автоматически включать Shift Lock при захвате цели
 
     -- Настройки Hacker Mode
     HackerDistance = 15,
@@ -65,13 +66,31 @@ local hackerActive = false
 local lastShotTime = 0
 local SHOT_COOLDOWN = 0.5
 local pickedUpThisRound = false
-local lastMousePos = nil  -- для сглаживания движения мыши
+local shiftLockActive = false
 
 -- ================== Helpers ==================
 local function SimulateClick()
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
     task.wait(0.02)
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+end
+
+local function enableShiftLock()
+    if shiftLockActive then return end
+    if not Combat.Config.AutoShiftLock then return end
+    -- Отправляем нажатие Shift (KeyCode.LeftShift)
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+    shiftLockActive = true
+end
+
+local function disableShiftLock()
+    if not shiftLockActive then return end
+    -- Отправляем ещё раз, чтобы переключить обратно, если нужно. 
+    -- Обычно Shift Lock переключается по нажатию, поэтому дважды нажмём.
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+    shiftLockActive = false
 end
 
 local function IsThreat(player)
@@ -131,7 +150,6 @@ local function GetAimTarget()
     end
 
     local best = nil
-    local bestScreenPos = nil
     local bestDist = Combat.Config.FOV
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
@@ -144,32 +162,19 @@ local function GetAimTarget()
                     if dist < bestDist then
                         bestDist = dist
                         best = head
-                        bestScreenPos = screenPos
                     end
                 end
             end
         end
     end
-    return best, bestScreenPos
+    return best
 end
 
--- ================== Движение мыши ==================
-local function moveMouseToScreenPos(targetScreenPos, speed)
-    if not targetScreenPos then return end
-    if not lastMousePos then
-        lastMousePos = UserInputService:GetMouseLocation()
-    end
-    local current = lastMousePos
-    -- speed = 0..1, но мы передаём скорость от 0 до 1 (SmoothSpeed / 10 даст 0.1..1)
-    local factor = math.clamp(speed, 0.1, 1)
-    local newPos
-    if factor >= 1 then
-        newPos = targetScreenPos
-    else
-        newPos = current:Lerp(Vector2.new(targetScreenPos.X, targetScreenPos.Y), factor)
-    end
-    VirtualInputManager:SendMouseMoveEvent(newPos.X, newPos.Y, game)
-    lastMousePos = newPos
+local function SmoothAim(targetPos, speed)
+    speed = speed or Combat.Config.SmoothSpeed / 10
+    local current = Camera.CFrame
+    local desired = CFrame.new(current.Position, targetPos)
+    Camera.CFrame = current:Lerp(desired, speed)
 end
 
 -- ================== Поиск карты ==================
@@ -231,7 +236,7 @@ end)
 
 LocalPlayer.CharacterAdded:Connect(function()
     pickedUpThisRound = false
-    lastMousePos = nil
+    if shiftLockActive then disableShiftLock() end
 end)
 
 -- ================== Управление BodyVelocity ==================
@@ -252,7 +257,7 @@ local function disableAntiGravity()
     end
 end
 
--- ================== Единый Heartbeat с цепочкой приоритетов ==================
+-- ================== Единый Heartbeat ==================
 local heartbeatConnection
 local function startHeartbeat()
     if heartbeatConnection then return end
@@ -265,7 +270,7 @@ local function startHeartbeat()
                     disableAntiGravity()
                 end
                 FOVFrame.Visible = false
-                lastMousePos = nil
+                if shiftLockActive then disableShiftLock() end
                 return
             end
 
@@ -275,7 +280,7 @@ local function startHeartbeat()
 
             local hasGun = IsLocalSheriff()
 
-            -- ШАГ 1: Если мы НЕ шериф, включен InstantPickup, и ещё не подбирали — ищем пистолет
+            -- ШАГ 1: Мгновенный подбор пистолета (если нужно)
             if Combat.Config.InstantGunPickup and not pickedUpThisRound and not hasGun then
                 local map = getMap()
                 local gunDrop = map and map:FindFirstChild("GunDrop")
@@ -288,8 +293,9 @@ local function startHeartbeat()
             -- ШАГ 2: Аимбот и Hacker Mode
             if Combat.Config.AimEnabled then
                 if Combat.Config.AimMode == "Hacker" and hasGun then
+                    -- Hacker Mode (камера фиксируется жёстко, Shift Lock не нужен)
                     hackerActive = true
-                    lastMousePos = nil  -- в Hacker Mode мышь не двигаем
+                    if shiftLockActive then disableShiftLock() end
                     local murderer = FindMurderer()
                     if murderer and murderer.Character then
                         local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
@@ -337,18 +343,31 @@ local function startHeartbeat()
                         disableAntiGravity()
                     end
                 else
+                    -- Стандартные режимы (Static, Dynamic, Smooth) с поворотом камеры и Shift Lock
                     hackerActive = false
                     disableAntiGravity()
-                    -- Стандартные режимы: двигаем мышь, а не камеру
-                    local target, screenPos = GetAimTarget()
-                    if target and screenPos then
-                        local speed = Combat.Config.SmoothSpeed / 10
-                        if Combat.Config.AimMode == "Static" then
-                            speed = 1  -- мгновенно
-                        end
-                        moveMouseToScreenPos(Vector2.new(screenPos.X, screenPos.Y), speed)
+                    local target = GetAimTarget()
+                    local targetPos = target and target.Position
+                    if targetPos then
+                        -- Включаем Shift Lock при обнаружении цели
+                        enableShiftLock()
 
-                        -- AutoShot для стандартных режимов
+                        -- Предсказание
+                        if Combat.Config.Prediction > 0 then
+                            local root = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                targetPos += root.Velocity * (Combat.Config.Prediction / 1000)
+                            end
+                        end
+
+                        -- Поворот камеры
+                        if Combat.Config.AimMode == "Static" then
+                            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+                        elseif Combat.Config.AimMode == "Smooth" or Combat.Config.AimMode == "Dynamic" then
+                            SmoothAim(targetPos)
+                        end
+
+                        -- Авто‑выстрел
                         if Combat.Config.AutoShot and (tick() - lastShotTime >= SHOT_COOLDOWN) then
                             local tool = char:FindFirstChildOfClass("Tool")
                             if tool and (tool.Name == "Gun" or tool:FindFirstChild("Gun")) then
@@ -357,13 +376,14 @@ local function startHeartbeat()
                             end
                         end
                     else
-                        lastMousePos = nil  -- цели нет, сбрасываем
+                        -- Цели нет – выключаем Shift Lock
+                        disableShiftLock()
                     end
                 end
             else
                 hackerActive = false
                 disableAntiGravity()
-                lastMousePos = nil
+                disableShiftLock()
             end
 
             -- Триггер-бот
@@ -487,6 +507,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
             FOVTrans = "Прозрачность FOV",
             HackerDist = "Дистанция Hacker",
             Trigger = "Триггер-бот",
+            AutoShiftLock = "Авто-Shift Lock",
 
             SecKeys = "Горячие клавиши",
             ShootKey = "Выстрел",
@@ -518,6 +539,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
             FOVTrans = "FOV Transparency",
             HackerDist = "Hacker Distance",
             Trigger = "Triggerbot",
+            AutoShiftLock = "Auto Shift Lock",
 
             SecKeys = "Keybinds",
             ShootKey = "Shoot",
@@ -563,6 +585,7 @@ function Combat.Init(GlobalConfig, UI, Lang)
     tab:AddNumberInput({ Title = text.FOVTrans, Min = 0, Max = 1, Default = Combat.Config.FOVTransparency, Callback = function(v) Combat.Config.FOVTransparency = v end })
     tab:AddNumberInput({ Title = text.HackerDist, Min = 5, Max = 20, Default = Combat.Config.HackerDistance, Callback = function(v) Combat.Config.HackerDistance = v end })
     tab:AddToggle({ Title = text.Trigger, Default = false, Callback = function(s) Combat.Config.TriggerBot = s end })
+    tab:AddToggle({ Title = text.AutoShiftLock, Default = Combat.Config.AutoShiftLock, Callback = function(s) Combat.Config.AutoShiftLock = s end })
 
     -- Keybinds Section
     tab:AddSection(text.SecKeys)
