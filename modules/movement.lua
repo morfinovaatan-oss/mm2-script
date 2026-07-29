@@ -1,4 +1,4 @@
--- [[ MM2 MOVEMENT MODULE ]] --
+-- [[ MM2 MOVEMENT MODULE – адаптированный под UILibrary ]] --
 local Movement = {}
 
 local Players = game:GetService("Players")
@@ -20,9 +20,9 @@ Movement.Config = {
     Invisibility = false,
     AntiAFK = true,
     NoClip = false,
-    NoPlayerCollision = false, -- Добавлено: Коллизия игроков
-    Fly = false,               -- Добавлено: Полет
-    FlySpeed = 50              -- Добавлено: Скорость полета
+    NoPlayerCollision = false,
+    Fly = false,
+    FlySpeed = 50
 }
 
 local Connections = {}
@@ -60,7 +60,7 @@ end
 -- Восстановление флая при возрождении
 Connections.CharAdded = LocalPlayer.CharacterAdded:Connect(function(char)
     if Movement.Config.Fly then
-        task.wait(0.5) -- Ждем пока персонаж прогрузится
+        task.wait(0.5)
         ToggleFly(true)
     end
 end)
@@ -96,7 +96,7 @@ Connections.MainLoop = RunService.Stepped:Connect(function()
         humanoid.UseJumpPower = true
     end
 
-    -- Ноу-клип (Проход сквозь стены)
+    -- Ноу-клип
     if Movement.Config.NoClip then
         for _, part in pairs(char:GetDescendants()) do
             if part:IsA("BasePart") and part.CanCollide then 
@@ -143,11 +143,11 @@ Connections.MainLoop = RunService.Stepped:Connect(function()
     end
 end)
 
-function Movement.Init(GlobalConfig, UI, Lang)
-    -- Переводы текста
+-- ================== UI Init ==================
+function Movement.Init(GlobalConfig, parentTab, Lang)
     local T = {
         RU = {
-            Tab = "🏃 Движение",
+            SubMain = "Движение",
             SecSpeed = "Характеристики персонажа",
             Speed = "Скорость бега",
             Jump = "Высота прыжка",
@@ -161,7 +161,7 @@ function Movement.Init(GlobalConfig, UI, Lang)
             AntiAFK = "Анти-АФК (Защита от вылета)"
         },
         EN = {
-            Tab = "🏃 Movement",
+            SubMain = "Movement",
             SecSpeed = "Character Stats",
             Speed = "Walk Speed",
             Jump = "Jump Power",
@@ -175,75 +175,62 @@ function Movement.Init(GlobalConfig, UI, Lang)
             AntiAFK = "Anti-AFK (Anti-Kick)"
         }
     }
-    
     local text = T[Lang] or T.RU
-    local MoveTab = UI:CreateTab(text.Tab)
+    local SubTab = parentTab:AddSubTab(text.SubMain)
 
-    -- Секция 1: Скорость и Прыжок
-    MoveTab:AddSection(text.SecSpeed)
-
-    MoveTab:AddNumberInput({
-        Title = text.Speed,
-        Min = 16,
-        Max = 200,
-        Default = Movement.Config.WalkSpeed,
-        Callback = function(val) Movement.Config.WalkSpeed = val end
+    -- Character Stats Group
+    local StatsGroup = SubTab:AddGroupbox(text.SecSpeed)
+    StatsGroup:AddSlider({
+        Text = text.Speed,
+        Min = 16, Max = 200, Default = Movement.Config.WalkSpeed,
+        Suffix = " studs/s",
+        Callback = function(v) Movement.Config.WalkSpeed = v end
+    })
+    StatsGroup:AddSlider({
+        Text = text.Jump,
+        Min = 50, Max = 350, Default = Movement.Config.JumpPower,
+        Suffix = " power",
+        Callback = function(v) Movement.Config.JumpPower = v end
+    })
+    StatsGroup:AddSlider({
+        Text = text.FlySpeed,
+        Min = 16, Max = 300, Default = Movement.Config.FlySpeed,
+        Suffix = " studs/s",
+        Callback = function(v) Movement.Config.FlySpeed = v end
     })
 
-    MoveTab:AddNumberInput({
-        Title = text.Jump,
-        Min = 50,
-        Max = 350,
-        Default = Movement.Config.JumpPower,
-        Callback = function(val) Movement.Config.JumpPower = val end
-    })
-
-    MoveTab:AddNumberInput({
-        Title = text.FlySpeed,
-        Min = 16,
-        Max = 300,
-        Default = Movement.Config.FlySpeed,
-        Callback = function(val) Movement.Config.FlySpeed = val end
-    })
-
-    -- Секция 2: Способности
-    MoveTab:AddSection(text.SecAbilities)
-
-    MoveTab:AddToggle({
-        Title = text.Fly,
+    -- Abilities Group
+    local AbilitiesGroup = SubTab:AddGroupbox(text.SecAbilities)
+    AbilitiesGroup:AddToggle({
+        Text = text.Fly,
         Default = Movement.Config.Fly,
-        Callback = function(state) 
-            Movement.Config.Fly = state 
+        Callback = function(state)
+            Movement.Config.Fly = state
             ToggleFly(state)
         end
     })
-
-    MoveTab:AddToggle({
-        Title = text.InfJump,
+    AbilitiesGroup:AddToggle({
+        Text = text.InfJump,
         Default = Movement.Config.InfiniteJump,
         Callback = function(state) Movement.Config.InfiniteJump = state end
     })
-
-    MoveTab:AddToggle({
-        Title = text.NoClip,
+    AbilitiesGroup:AddToggle({
+        Text = text.NoClip,
         Default = Movement.Config.NoClip,
         Callback = function(state) Movement.Config.NoClip = state end
     })
-
-    MoveTab:AddToggle({
-        Title = text.NoPlayerCol,
+    AbilitiesGroup:AddToggle({
+        Text = text.NoPlayerCol,
         Default = Movement.Config.NoPlayerCollision,
         Callback = function(state) Movement.Config.NoPlayerCollision = state end
     })
-
-    MoveTab:AddToggle({
-        Title = text.Invis,
+    AbilitiesGroup:AddToggle({
+        Text = text.Invis,
         Default = Movement.Config.Invisibility,
         Callback = function(state) Movement.Config.Invisibility = state end
     })
-
-    MoveTab:AddToggle({
-        Title = text.AntiAFK,
+    AbilitiesGroup:AddToggle({
+        Text = text.AntiAFK,
         Default = Movement.Config.AntiAFK,
         Callback = function(state) Movement.Config.AntiAFK = state end
     })
