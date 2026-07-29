@@ -1,4 +1,4 @@
--- [[ MM2 VISUALS MODULE – Final without internal Watermark ]] --
+-- [[ MM2 VISUALS MODULE – адаптированный под UILibrary ]] --
 local Visuals = {}
 
 local Players = game:GetService("Players")
@@ -306,88 +306,88 @@ task.spawn(function()
 end)
 
 -- ====================== Инициализация UI ======================
-function Visuals.Init(GlobalConfig, UI, Lang)
+function Visuals.Init(GlobalConfig, parentTab, Lang)
     local T = {
         RU = {
-            Tab = "👁️ Визуалы",
+            SubMain = "Визуалы",
             SecESP = "Игроки и ESP",
-            ESP = "1. Включить ESP",
-            RoleColors = "2. Цвета ролей (Murder/Sheriff)",
-            Chroma = "3. Радужный ESP (Chroma)",
-            Outlines = "4. Контуры (Outlines)",
-            Health = "5. Полоска здоровья (Health Bar)",
-            Distance = "6. Дистанция (Метры)",
-            Tracers = "7. Линии к игрокам (Tracers)",
-            Transp = "8. Прозрачность заливки",
-            TextSize = "9. Размер текста",
+            ESP = "Включить ESP",
+            RoleColors = "Цвета ролей (Murder/Sheriff)",
+            Chroma = "Радужный ESP (Chroma)",
+            Outlines = "Контуры (Outlines)",
+            Health = "Полоска здоровья (Health Bar)",
+            Distance = "Дистанция (Метры)",
+            Tracers = "Линии к игрокам (Tracers)",
+            Transp = "Прозрачность заливки",
+            TextSize = "Размер текста",
 
             SecTrack = "Лут и Предметы",
-            GunESP = "10. ESP на пистолет (GunDrop)",
-            CoinESP = "11. Подсветка монет (В разработке)",
+            GunESP = "ESP на пистолет (GunDrop)",
+            CoinESP = "Подсветка монет (В разработке)",
 
             SecHUD = "Интерфейс (HUD)",
-            NightMode = "12. Ночной режим",
-            Fullbright = "13. Максимальная яркость",
-            Crosshair = "14. Прицел в центре экрана",
-            AliveCount = "15. Счетчик живых игроков"
+            NightMode = "Ночной режим",
+            Fullbright = "Максимальная яркость",
+            Crosshair = "Прицел в центре экрана",
+            AliveCount = "Счетчик живых игроков"
         },
         EN = {
-            Tab = "👁️ Visuals",
+            SubMain = "Visuals",
             SecESP = "Players & ESP",
-            ESP = "1. Enable ESP",
-            RoleColors = "2. Role Colors",
-            Chroma = "3. Rainbow ESP (Chroma)",
-            Outlines = "4. Outlines",
-            Health = "5. Health Bar",
-            Distance = "6. Distance",
-            Tracers = "7. Tracers",
-            Transp = "8. Fill Transparency",
-            TextSize = "9. Text Size",
+            ESP = "Enable ESP",
+            RoleColors = "Role Colors",
+            Chroma = "Rainbow ESP (Chroma)",
+            Outlines = "Outlines",
+            Health = "Health Bar",
+            Distance = "Distance",
+            Tracers = "Tracers",
+            Transp = "Fill Transparency",
+            TextSize = "Text Size",
 
             SecTrack = "Items",
-            GunESP = "10. Gun Drop ESP",
-            CoinESP = "11. Coin ESP (WIP)",
+            GunESP = "Gun Drop ESP",
+            CoinESP = "Coin ESP (WIP)",
 
             SecHUD = "HUD",
-            NightMode = "12. Night Mode",
-            Fullbright = "13. Fullbright",
-            Crosshair = "14. Crosshair",
-            AliveCount = "15. Alive Counter"
+            NightMode = "Night Mode",
+            Fullbright = "Fullbright",
+            Crosshair = "Crosshair",
+            AliveCount = "Alive Counter"
         }
     }
-
     local text = T[Lang] or T.RU
-    local VisTab = UI:CreateTab(text.Tab)
+    local SubTab = parentTab:AddSubTab(text.SubMain)
 
-    VisTab:AddSection(text.SecESP)
-    VisTab:AddToggle({ Title = text.ESP, Default = Visuals.Config.ESP_Enabled, Callback = function(s) Visuals.Config.ESP_Enabled = s end })
-    VisTab:AddToggle({ Title = text.RoleColors, Default = Visuals.Config.RoleColors, Callback = function(s) Visuals.Config.RoleColors = s end })
-    VisTab:AddToggle({ Title = text.Chroma, Default = Visuals.Config.Chroma, Callback = function(s) Visuals.Config.Chroma = s end })
-    VisTab:AddToggle({ Title = text.Outlines, Default = Visuals.Config.Outlines, Callback = function(s) Visuals.Config.Outlines = s end })
-    VisTab:AddToggle({ Title = text.Health, Default = Visuals.Config.HealthBar, Callback = function(s) Visuals.Config.HealthBar = s end })
-    VisTab:AddToggle({ Title = text.Distance, Default = Visuals.Config.Distance, Callback = function(s) Visuals.Config.Distance = s end })
-    VisTab:AddToggle({ Title = text.Tracers, Default = Visuals.Config.Tracers, Callback = function(s) Visuals.Config.Tracers = s end })
-    VisTab:AddNumberInput({ Title = text.Transp, Min = 0, Max = 1, Default = Visuals.Config.ESP_Transparency, Callback = function(v) Visuals.Config.ESP_Transparency = v end })
-    VisTab:AddNumberInput({ Title = text.TextSize, Min = 10, Max = 24, Default = Visuals.Config.ESP_TextSize, Callback = function(v) Visuals.Config.ESP_TextSize = v end })
+    -- ESP Group
+    local ESPGroup = SubTab:AddGroupbox(text.SecESP)
+    ESPGroup:AddToggle({ Text = text.ESP, Default = false, Callback = function(s) Visuals.Config.ESP_Enabled = s end })
+    ESPGroup:AddToggle({ Text = text.RoleColors, Default = true, Callback = function(s) Visuals.Config.RoleColors = s end })
+    ESPGroup:AddToggle({ Text = text.Chroma, Default = false, Callback = function(s) Visuals.Config.Chroma = s end })
+    ESPGroup:AddToggle({ Text = text.Outlines, Default = true, Callback = function(s) Visuals.Config.Outlines = s end })
+    ESPGroup:AddToggle({ Text = text.Health, Default = false, Callback = function(s) Visuals.Config.HealthBar = s end })
+    ESPGroup:AddToggle({ Text = text.Distance, Default = false, Callback = function(s) Visuals.Config.Distance = s end })
+    ESPGroup:AddToggle({ Text = text.Tracers, Default = false, Callback = function(s) Visuals.Config.Tracers = s end })
+    ESPGroup:AddSlider({ Text = text.Transp, Min = 0, Max = 1, Default = Visuals.Config.ESP_Transparency, Decimals = 2, Callback = function(v) Visuals.Config.ESP_Transparency = v end })
+    ESPGroup:AddSlider({ Text = text.TextSize, Min = 10, Max = 24, Default = Visuals.Config.ESP_TextSize, Callback = function(v) Visuals.Config.ESP_TextSize = v end })
 
-    VisTab:AddSection(text.SecTrack)
-    VisTab:AddToggle({
-        Title = text.GunESP,
-        Default = Visuals.Config.GunESP,
+    -- Items Group
+    local ItemsGroup = SubTab:AddGroupbox(text.SecTrack)
+    ItemsGroup:AddToggle({
+        Text = text.GunESP,
+        Default = false,
         Callback = function(s)
             Visuals.Config.GunESP = s
-            if not s then
-                removeGunESP()
-            end
+            if not s then removeGunESP() end
         end
     })
-    VisTab:AddToggle({ Title = text.CoinESP, Default = false, Callback = function(s) end })
+    ItemsGroup:AddToggle({ Text = text.CoinESP, Default = false, Callback = function(s) end })
 
-    VisTab:AddSection(text.SecHUD)
-    VisTab:AddToggle({ Title = text.NightMode, Default = Visuals.Config.NightMode, Callback = function(s) Visuals.Config.NightMode = s end })
-    VisTab:AddToggle({ Title = text.Fullbright, Default = Visuals.Config.Fullbright, Callback = function(s) Visuals.Config.Fullbright = s end })
-    VisTab:AddToggle({ Title = text.Crosshair, Default = Visuals.Config.Crosshair, Callback = function(s) Visuals.Config.Crosshair = s end })
-    VisTab:AddToggle({ Title = text.AliveCount, Default = Visuals.Config.AliveCounter, Callback = function(s) Visuals.Config.AliveCounter = s end })
+    -- HUD Group
+    local HUDGroup = SubTab:AddGroupbox(text.SecHUD)
+    HUDGroup:AddToggle({ Text = text.NightMode, Default = false, Callback = function(s) Visuals.Config.NightMode = s end })
+    HUDGroup:AddToggle({ Text = text.Fullbright, Default = false, Callback = function(s) Visuals.Config.Fullbright = s end })
+    HUDGroup:AddToggle({ Text = text.Crosshair, Default = false, Callback = function(s) Visuals.Config.Crosshair = s end })
+    HUDGroup:AddToggle({ Text = text.AliveCount, Default = false, Callback = function(s) Visuals.Config.AliveCounter = s end })
 end
 
 return Visuals
