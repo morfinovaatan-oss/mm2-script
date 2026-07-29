@@ -1,4 +1,4 @@
--- [[ MM2 MURDERER COMBAT MODULE – Reliable Kill Mechanics (Summon + Kill + NoCollision) ]] --
+-- [[ MM2 MURDERER COMBAT MODULE – адаптированный под UILibrary ]] --
 local MCombat = {}
 
 local Players = game:GetService("Players")
@@ -211,11 +211,11 @@ LocalPlayer.CharacterAdded:Connect(function()
     enableCollision()
 end)
 
--- UI Init
-function MCombat.Init(GlobalConfig, UI, Lang)
+-- ================== UI Init ==================
+function MCombat.Init(GlobalConfig, parentTab, Lang)
     local T = {
         RU = {
-            Tab = "🔪 Убийца",
+            SubMain = "Убийства",
             SecKill = "Убийства",
             KillSheriff = "Убить шерифа",
             KillAll = "Убить всех",
@@ -225,7 +225,7 @@ function MCombat.Init(GlobalConfig, UI, Lang)
             FindSheriffKey = "Найти шерифа",
         },
         EN = {
-            Tab = "🔪 Murderer",
+            SubMain = "Kills",
             SecKill = "Kills",
             KillSheriff = "Kill Sheriff",
             KillAll = "Kill All",
@@ -235,36 +235,53 @@ function MCombat.Init(GlobalConfig, UI, Lang)
             FindSheriffKey = "Find Sheriff",
         }
     }
-
     local text = T[Lang] or T.RU
-    local tab = UI:CreateTab(text.Tab)
+    local SubTab = parentTab:AddSubTab(text.SubMain)
 
-    tab:AddSection(text.SecKill)
-    tab:AddToggle({ Title = text.KillSheriff, Default = false, Callback = function(s) MCombat.Config.KillSheriff = s end })
-    tab:AddToggle({ Title = text.KillAll, Default = false, Callback = function(s) MCombat.Config.KillAll = s end })
-    tab:AddNumberInput({ Title = text.KillCooldown, Min = 0.1, Max = 2, Default = MCombat.Config.KillCooldown, Callback = function(v) MCombat.Config.KillCooldown = v end })
+    -- Kills Group
+    local KillGroup = SubTab:AddGroupbox(text.SecKill)
+    KillGroup:AddToggle({
+        Text = text.KillSheriff,
+        Default = false,
+        Callback = function(s) MCombat.Config.KillSheriff = s end
+    })
+    KillGroup:AddToggle({
+        Text = text.KillAll,
+        Default = false,
+        Callback = function(s) MCombat.Config.KillAll = s end
+    })
+    KillGroup:AddSlider({
+        Text = text.KillCooldown,
+        Min = 0.1, Max = 2, Default = MCombat.Config.KillCooldown,
+        Suffix = " s", Decimals = 1,
+        Callback = function(v) MCombat.Config.KillCooldown = v end
+    })
 
-    tab:AddSection(text.SecKeys)
-    local function addBindLabelAndButton(keyName, configKeyString)
-        local label = tab:AddLabel(keyName .. " : " .. tostring(MCombat.Config[configKeyString]):gsub("Enum.KeyCode.", ""))
-        tab:AddButton(keyName .. " (нажмите для смены)", function()
-            local oldKey = MCombat.Config[configKeyString]
-            label.Text = keyName .. " : ... (ожидание)"
-            local conn
-            conn = UserInputService.InputBegan:Connect(function(input, gp)
-                if gp then return end
-                conn:Disconnect()
-                MCombat.Config[configKeyString] = input.KeyCode
-                label.Text = keyName .. " : " .. tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
-            end)
-            task.wait(3)
-            if MCombat.Config[configKeyString] == oldKey then
-                label.Text = keyName .. " : " .. tostring(oldKey):gsub("Enum.KeyCode.", "")
+    -- Keybinds Group
+    local KeysGroup = SubTab:AddGroupbox(text.SecKeys)
+    local function addKeybindRow(keyName, configKey)
+        local label = KeysGroup:AddLabel(MCombat.Config[configKey] and (keyName .. " : " .. tostring(MCombat.Config[configKey]):gsub("Enum.KeyCode.", "")) or (keyName .. " : None"))
+        KeysGroup:AddButton({
+            Text = keyName .. " (нажмите для смены)",
+            Callback = function()
+                local oldKey = MCombat.Config[configKey]
+                label:SetText(keyName .. " : ... (ожидание)")
+                local conn
+                conn = UserInputService.InputBegan:Connect(function(input, gp)
+                    if gp then return end
+                    conn:Disconnect()
+                    MCombat.Config[configKey] = input.KeyCode
+                    label:SetText(keyName .. " : " .. tostring(input.KeyCode):gsub("Enum.KeyCode.", ""))
+                end)
+                task.wait(3)
+                if MCombat.Config[configKey] == oldKey then
+                    label:SetText(keyName .. " : " .. tostring(oldKey):gsub("Enum.KeyCode.", ""))
+                end
             end
-        end)
+        })
     end
-    addBindLabelAndButton(text.KnifeKey, "KnifeKey")
-    addBindLabelAndButton(text.FindSheriffKey, "FindSheriffKey")
+    addKeybindRow(text.KnifeKey, "KnifeKey")
+    addKeybindRow(text.FindSheriffKey, "FindSheriffKey")
 end
 
 return MCombat
