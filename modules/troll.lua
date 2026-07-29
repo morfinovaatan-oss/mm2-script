@@ -1,4 +1,4 @@
--- [[ MM2 TROLL MODULE – WORKING FLING (Adapted from Kilasik's Multi-Target) ]] --
+-- [[ MM2 TROLL MODULE – адаптированный под UILibrary ]] --
 local Troll = {}
 
 local Players = game:GetService("Players")
@@ -13,7 +13,6 @@ getgenv().OldPos = nil
 getgenv().FPDH = Workspace.FallenPartsDestroyHeight
 
 -- ================== Помощники ==================
-
 local function GetLocalRootPos()
     local char = LocalPlayer.Character
     if not char then return nil end
@@ -58,7 +57,6 @@ local function FindSheriff()
 end
 
 -- ================== МОЩНЫЙ ФЛИНГ (SkidFling) ==================
-
 local function SkidFling(TargetPlayer)
     local Character = LocalPlayer.Character
     local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
@@ -89,7 +87,7 @@ local function SkidFling(TargetPlayer)
     elseif Handle then
         Camera.CameraSubject = Handle
     elseif THumanoid and TRootPart then
-        Camera.CameraSubject = THumanoid
+        Camera.CCamera.CameraSubject = THumanoid
     end
 
     if not TCharacter:FindFirstChildWhichIsA("BasePart") then
@@ -205,27 +203,30 @@ function Troll.FlingAll()
 end
 
 -- ================== Инициализация UI ==================
-function Troll.Init(GlobalConfig, UI, Lang)
+function Troll.Init(GlobalConfig, parentTab, Lang)
     local T = {
         RU = {
-            TabName = "😂 Тролль",
+            SubMain = "Тролль",
+            SecFling = "Флинг",
             FlingSheriff = "Флинг шерифа",
             FlingMurderer = "Флинг мёрдера",
             FlingAll = "Флинг всех"
         },
         EN = {
-            TabName = "😂 Troll",
+            SubMain = "Troll",
+            SecFling = "Fling",
             FlingSheriff = "Fling Sheriff",
             FlingMurderer = "Fling Murderer",
             FlingAll = "Fling All"
         }
     }
     local text = T[Lang] or T.RU
+    local SubTab = parentTab:AddSubTab(text.SubMain)
 
-    local TrollTab = UI:CreateTab(text.TabName)
-    TrollTab:AddButton(text.FlingSheriff, Troll.FlingSheriff)
-    TrollTab:AddButton(text.FlingMurderer, Troll.FlingMurderer)
-    TrollTab:AddButton(text.FlingAll, Troll.FlingAll)
+    local FlingGroup = SubTab:AddGroupbox(text.SecFling)
+    FlingGroup:AddButton({ Text = text.FlingSheriff, Callback = Troll.FlingSheriff })
+    FlingGroup:AddButton({ Text = text.FlingMurderer, Callback = Troll.FlingMurderer })
+    FlingGroup:AddButton({ Text = text.FlingAll, Callback = Troll.FlingAll })
 end
 
 return Troll
