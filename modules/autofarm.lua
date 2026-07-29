@@ -1,4 +1,4 @@
--- [[ MM2 AUTOFARM – Simple coin teleport (from OminousVibes) ]] --
+-- [[ MM2 AUTOFARM – адаптированный под UILibrary ]] --
 local Autofarm = {}
 
 local Players = game:GetService("Players")
@@ -32,15 +32,17 @@ task.spawn(function()
 end)
 
 -- Инициализация UI
-function Autofarm.Init(GlobalConfig, UI, Lang)
+function Autofarm.Init(GlobalConfig, parentTab, Lang)
     local T = {
-        RU = { Tab = "💰 Автофарм", Toggle = "Включить автофарм" },
-        EN = { Tab = "💰 AutoFarm", Toggle = "Enable AutoFarm" }
+        RU = { SubMain = "Автофарм", Toggle = "Включить автофарм" },
+        EN = { SubMain = "AutoFarm", Toggle = "Enable AutoFarm" }
     }
     local text = T[Lang] or T.RU
-    local Tab = UI:CreateTab(text.Tab)
-    Tab:AddToggle({
-        Title = text.Toggle,
+    local SubTab = parentTab:AddSubTab(text.SubMain)
+
+    local FarmGroup = SubTab:AddGroupbox("Автофарм")
+    FarmGroup:AddToggle({
+        Text = text.Toggle,
         Default = false,
         Callback = function(state) Config.AutoFarm = state end
     })
